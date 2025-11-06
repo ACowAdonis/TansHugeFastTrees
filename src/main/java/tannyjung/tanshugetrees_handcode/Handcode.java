@@ -21,6 +21,7 @@ import tannyjung.tanshugetrees.TanshugetreesMod;
 import tannyjung.tanshugetrees_handcode.config.CustomPackIncompatible;
 import tannyjung.tanshugetrees_handcode.config.PackCheckUpdate;
 import tannyjung.tanshugetrees_handcode.config.ConfigMain;
+import tannyjung.tanshugetrees_handcode.systems.Cache;
 import tannyjung.tanshugetrees_handcode.systems.Loop;
 import tannyjung.tanshugetrees_handcode.systems.world_gen.FeatureAreaDirt;
 import tannyjung.tanshugetrees_handcode.systems.world_gen.FeatureAreaGrass;
@@ -57,7 +58,7 @@ public class Handcode {
 
 	public static void startGame () {
 
-        TanshugetreesMod.LOGGER.info("Loading mod registries, config, and variables.");
+        TanshugetreesMod.LOGGER.info("Run Start Systems");
 
         // Core Code Syncing
         {
@@ -81,14 +82,17 @@ public class Handcode {
 
 		}
 
-        Handcode.thread_main.submit(() -> {
-
-			ConfigMain.repairAll(null);
-			ConfigMain.apply(null);
-
-		});
+        restart(null);
 
 	}
+
+    public static void restart (LevelAccessor level_accessor) {
+
+        Cache.clear();
+        ConfigMain.repairAll(level_accessor);
+        ConfigMain.apply(level_accessor);
+
+    }
 
 	@SubscribeEvent
 	public static void worldAboutToStart (ServerAboutToStartEvent event) {
@@ -110,8 +114,7 @@ public class Handcode {
 
 		String world_path = String.valueOf(event.getServer().getWorldPath(new LevelResource(".")));
 		path_world_data = world_path + "/data/tanshugetrees";
-		ConfigMain.repairAll(null);
-		ConfigMain.apply(null);
+		restart(null);
 
 	}
 
@@ -145,13 +148,7 @@ public class Handcode {
 	public static void worldStopped (ServerStoppingEvent event) {
 
 		TanshugetreesMod.LOGGER.info("Turned OFF world systems");
-
-        // Thread Stop
-        {
-
-            thread_main.shutdownNow();
-
-        }
+        thread_main.shutdownNow();
 
 	}
 
