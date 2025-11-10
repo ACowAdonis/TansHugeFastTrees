@@ -44,9 +44,10 @@ public class Handcode {
 	// ----------------------------------------------------------------------------------------------------
 
 	public static String path_config = Utils.path_game + "/config/tanshugetrees";
-	public static String path_world_data = Utils.path_game + "/saves/tanshugetrees-error/path_world_data";
+	public static String path_world_data = Utils.path_game + "/saves/tanshugetrees-error";
 	public static String tanny_pack_version_name = ""; // Make this because version can swap to "WIP" by config
 
+    public static boolean thread_pause = false;
     public static ExecutorService thread_main = Executors.newFixedThreadPool(1);
     private static int thread_number = 0;
 
@@ -56,7 +57,21 @@ public class Handcode {
 
 	public static void startGame () {
 
-        TanshugetreesMod.LOGGER.info("Run Start Systems");
+        TanshugetreesMod.LOGGER.info("Starting...");
+
+        // Basic Registries
+        {
+
+            IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
+
+            DeferredRegister<Feature<?>> REGISTRY = DeferredRegister.create(Registries.FEATURE, TanshugetreesMod.MODID);
+            REGISTRY.register("world_gen_before_plants", WorldGenBeforePlants::new);
+            REGISTRY.register("area_grass", FeatureAreaGrass::new);
+            REGISTRY.register("area_dirt", FeatureAreaDirt::new);
+
+            REGISTRY.register(bus);
+
+        }
 
         // Core Code Syncing
         {
@@ -65,37 +80,6 @@ public class Handcode {
             TXTFunction.version_1192 = version_1192;
 
         }
-
-		// Basic Registries
-		{
-
-			IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
-
-			DeferredRegister<Feature<?>> REGISTRY = DeferredRegister.create(Registries.FEATURE, TanshugetreesMod.MODID);
-			REGISTRY.register("world_gen_before_plants", WorldGenBeforePlants::new);
-			REGISTRY.register("area_grass", FeatureAreaGrass::new);
-			REGISTRY.register("area_dirt", FeatureAreaDirt::new);
-
-			REGISTRY.register(bus);
-
-		}
-
-        restart(null);
-
-	}
-
-    public static void restart (LevelAccessor level_accessor) {
-
-        Cache.clear();
-        ConfigMain.repairAll(level_accessor);
-        ConfigMain.apply(level_accessor);
-
-    }
-
-	@SubscribeEvent
-	public static void worldAboutToStart (ServerAboutToStartEvent event) {
-
-        TanshugetreesMod.LOGGER.info("Turned ON world systems");
 
         // Thread Start
         {
@@ -110,43 +94,76 @@ public class Handcode {
 
         }
 
-		String world_path = String.valueOf(event.getServer().getWorldPath(new LevelResource(".")));
-		path_world_data = world_path + "/data/tanshugetrees";
-		restart(null);
+        restart(null, false);
+
+	}
+
+    public static void restart (LevelAccessor level_accessor, boolean in_world) {
+
+        thread_pause = true;
+        ConfigMain.repairAll(level_accessor);
+        ConfigMain.apply(level_accessor);
+        Cache.clear();
+
+        TanshugetreesMod.queueServerWork(20, () -> {
+
+            if (in_world == true) {
+
+                thread_pause = false;
+
+                if (level_accessor instanceof ServerLevel level_server) {
+
+                    // World Systems
+                    {
+
+                        Utils.command.run(level_server, 0, 0, 0, "scoreboard objectives add TANSHUGETREES dummy");
+
+                        // Season Detector
+                        {
+
+                            if (ConfigMain.serene_seasons_compatibility == true && ModList.get().isLoaded("sereneseasons") == true) {
+
+                                SeasonDetector.start(level_server);
+
+                            }
+
+                        }
+
+                        Loop.start(level_accessor, level_server);
+
+                    }
+
+                    TanshugetreesMod.LOGGER.info("Started World Systems");
+
+                }
+
+            }
+
+            TanshugetreesMod.LOGGER.info("Restarted");
+
+        });
+
+    }
+
+	@SubscribeEvent
+	public static void worldAboutToStart (ServerAboutToStartEvent event) {
+
+        path_world_data = event.getServer().getWorldPath(new LevelResource(".")) + "/data/tanshugetrees";
+		restart(null, false);
 
 	}
 
 	@SubscribeEvent
 	public static void worldStarted (ServerStartedEvent event) {
 
-		LevelAccessor level_accessor = event.getServer().overworld();
-
-		if (level_accessor instanceof ServerLevel level_server) {
-
-			Utils.command.run(level_server, 0, 0, 0, "scoreboard objectives add TANSHUGETREES dummy");
-
-			// Season Detector
-			{
-
-				if (ConfigMain.serene_seasons_compatibility == true && ModList.get().isLoaded("sereneseasons") == true) {
-
-					SeasonDetector.start(level_server);
-
-				}
-
-			}
-
-			Loop.start(level_accessor, level_server);
-
-		}
+		restart(event.getServer().overworld(), true);
 
 	}
 
 	@SubscribeEvent
 	public static void worldStopped (ServerStoppingEvent event) {
 
-		TanshugetreesMod.LOGGER.info("Turned OFF world systems");
-        thread_main.shutdownNow();
+        restart(null, false);
 
 	}
 
