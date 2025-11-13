@@ -86,9 +86,9 @@ public class Handcode {
 
             thread_number = 1;
 
-            thread_main = Executors.newFixedThreadPool(3, name -> {
+            thread_main = Executors.newFixedThreadPool(1, name -> {
                 Thread thread = new Thread(name);
-                thread.setName("Tan's Huge Trees - Main (" + thread_number + "/" + 3 + ")");
+                thread.setName("Tan's Huge Trees - Main (" + thread_number + "/" + 1 + ")");
                 return thread;
             });
 
@@ -137,7 +137,7 @@ public class Handcode {
 
                             if (ConfigMain.serene_seasons_compatibility == true && ModList.get().isLoaded("sereneseasons") == true) {
 
-                                SeasonDetector.start(level_server);
+                                SeasonDetector.start(level_accessor, level_server);
 
                             }
 
