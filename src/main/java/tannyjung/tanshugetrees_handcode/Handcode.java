@@ -86,28 +86,42 @@ public class Handcode {
 
             thread_number = 1;
 
-            thread_main = Executors.newFixedThreadPool(1, name -> {
+            thread_main = Executors.newFixedThreadPool(3, name -> {
                 Thread thread = new Thread(name);
-                thread.setName("Tan's Huge Trees - Main (" + thread_number + "/" + 1 + ")");
+                thread.setName("Tan's Huge Trees - Main (" + thread_number + "/" + 3 + ")");
                 return thread;
             });
 
         }
 
-        restart(null, false);
+        restart(null, false, false);
 
 	}
 
-    public static void restart (LevelAccessor level_accessor, boolean in_world) {
+    public static void restart (LevelAccessor level_accessor, boolean only_world_system, boolean message) {
 
         thread_pause = true;
-        ConfigMain.repairAll(level_accessor);
-        ConfigMain.apply(level_accessor);
-        Cache.clear();
 
-        TanshugetreesMod.queueServerWork(20, () -> {
+        if (only_world_system == false) {
 
-            if (in_world == true) {
+            ConfigMain.repairAll(level_accessor);
+            ConfigMain.apply(level_accessor);
+
+        }
+
+        double cache_size = Cache.clear();
+
+        if (level_accessor == null) {
+
+            if (message == true) {
+
+                TanshugetreesMod.LOGGER.info("Restarted and cleared main caches (" + cache_size + " MB)");
+
+            }
+
+        } else {
+
+            TanshugetreesMod.queueServerWork(20, () -> {
 
                 thread_pause = false;
 
@@ -133,15 +147,17 @@ public class Handcode {
 
                     }
 
-                    TanshugetreesMod.LOGGER.info("Started World Systems");
+                    if (message == true) {
+
+                        Utils.misc.sendChatMessage(level_server, "@a", "gray", "THT : Restarted and cleared main caches (About " + cache_size + " MB)");
+
+                    }
 
                 }
 
-            }
+            });
 
-            TanshugetreesMod.LOGGER.info("Restarted");
-
-        });
+        }
 
     }
 
@@ -149,21 +165,21 @@ public class Handcode {
 	public static void worldAboutToStart (ServerAboutToStartEvent event) {
 
         path_world_data = event.getServer().getWorldPath(new LevelResource(".")) + "/data/tanshugetrees";
-		restart(null, false);
+		restart(null, false, false);
 
 	}
 
 	@SubscribeEvent
 	public static void worldStarted (ServerStartedEvent event) {
 
-		restart(event.getServer().overworld(), true);
+		restart(event.getServer().overworld(), true, false);
 
 	}
 
 	@SubscribeEvent
 	public static void worldStopped (ServerStoppingEvent event) {
 
-        restart(null, false);
+
 
 	}
 
