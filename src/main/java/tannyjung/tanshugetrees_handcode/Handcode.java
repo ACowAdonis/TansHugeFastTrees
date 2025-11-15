@@ -14,8 +14,7 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
-import tannyjung.core.Utils;
-import tannyjung.core.TXTFunction;
+import tannyjung.core.game.GameUtils;
 import tannyjung.tanshugetrees.TanshugetreesMod;
 import tannyjung.tanshugetrees_handcode.config.CustomPackIncompatible;
 import tannyjung.tanshugetrees_handcode.config.PackCheckUpdate;
@@ -43,8 +42,8 @@ public class Handcode {
 
 	// ----------------------------------------------------------------------------------------------------
 
-	public static String path_config = Utils.path_game + "/config/tanshugetrees";
-	public static String path_world_data = Utils.path_game + "/saves/tanshugetrees-error";
+	public static String path_config = GameUtils.path_game + "/config/tanshugetrees";
+	public static String path_world_data = GameUtils.path_game + "/saves/tanshugetrees-error";
 	public static String tanny_pack_version_name = ""; // Make this because version can swap to "WIP" by config
 
     public static boolean thread_pause = false;
@@ -59,28 +58,6 @@ public class Handcode {
 
         TanshugetreesMod.LOGGER.info("Starting...");
 
-        // Basic Registries
-        {
-
-            IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
-
-            DeferredRegister<Feature<?>> REGISTRY = DeferredRegister.create(Registries.FEATURE, TanshugetreesMod.MODID);
-            REGISTRY.register("world_gen_before_plants", WorldGenBeforePlants::new);
-            REGISTRY.register("area_grass", FeatureAreaGrass::new);
-            REGISTRY.register("area_dirt", FeatureAreaDirt::new);
-
-            REGISTRY.register(bus);
-
-        }
-
-        // Core Code Syncing
-        {
-
-            TXTFunction.path_config = path_config;
-            TXTFunction.version_1192 = version_1192;
-
-        }
-
         // Thread Start
         {
 
@@ -91,6 +68,20 @@ public class Handcode {
                 thread.setName("Tan's Huge Trees - Main (" + thread_number + "/" + 1 + ")");
                 return thread;
             });
+
+        }
+
+        // Registries
+        {
+
+            IEventBus bus = FMLJavaModLoadingContext.get().getModEventBus();
+
+            DeferredRegister<Feature<?>> REGISTRY = DeferredRegister.create(Registries.FEATURE, TanshugetreesMod.MODID);
+            REGISTRY.register("world_gen_before_plants", WorldGenBeforePlants::new);
+            REGISTRY.register("area_grass", FeatureAreaGrass::new);
+            REGISTRY.register("area_dirt", FeatureAreaDirt::new);
+
+            REGISTRY.register(bus);
 
         }
 
@@ -130,7 +121,7 @@ public class Handcode {
                     // World Systems
                     {
 
-                        Utils.command.run(level_server, 0, 0, 0, "scoreboard objectives add TANSHUGETREES dummy");
+                        GameUtils.command.run(level_server, 0, 0, 0, "scoreboard objectives add TANSHUGETREES dummy");
 
                         // Season Detector
                         {
@@ -149,7 +140,7 @@ public class Handcode {
 
                     if (message == true) {
 
-                        Utils.misc.sendChatMessage(level_server, "@a", "gray", "THT : Restarted and cleared main caches (About " + cache_size + " MB)");
+                        GameUtils.misc.sendChatMessage(level_server, "@a", "gray", "THT : Restarted and cleared main caches (About " + cache_size + " MB)");
 
                     }
 
@@ -186,7 +177,7 @@ public class Handcode {
 	@SubscribeEvent
 	public static void playerJoined (PlayerEvent.PlayerLoggedInEvent event) {
 
-		if (Utils.misc.playerCount() == 1) {
+		if (GameUtils.misc.playerCount() == 1) {
 
 			TanshugetreesMod.queueServerWork(100, () -> {
 
