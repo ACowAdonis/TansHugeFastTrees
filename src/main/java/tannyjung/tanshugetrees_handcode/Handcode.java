@@ -14,6 +14,7 @@ import net.minecraftforge.fml.ModList;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.registries.DeferredRegister;
+import tannyjung.core.Utils;
 import tannyjung.core.game.GameUtils;
 import tannyjung.tanshugetrees.TanshugetreesMod;
 import tannyjung.tanshugetrees_handcode.config.CustomPackIncompatible;
@@ -44,11 +45,11 @@ public class Handcode {
 
 	public static String path_config = GameUtils.path_game + "/config/tanshugetrees";
 	public static String path_world_data = GameUtils.path_game + "/saves/tanshugetrees-error";
-	public static String tanny_pack_version_name = ""; // Make this because version can swap to "WIP" by config
+	public static String tanny_pack_version_name = "";
 
-    public static boolean thread_pause = false;
+    private static final Object lock = new Object();
+    public static boolean system_pause = false;
     public static ExecutorService thread_main = Executors.newFixedThreadPool(1);
-    private static int thread_number = 0;
 
     // ----------------------------------------------------------------------------------------------------
 
@@ -61,11 +62,9 @@ public class Handcode {
         // Thread Start
         {
 
-            thread_number = 1;
-
             thread_main = Executors.newFixedThreadPool(1, name -> {
                 Thread thread = new Thread(name);
-                thread.setName("Tan's Huge Trees - Main (" + thread_number + "/" + 1 + ")");
+                thread.setName("Tan's Huge Trees");
                 return thread;
             });
 
@@ -85,97 +84,116 @@ public class Handcode {
 
         }
 
-        restart(null, false, false);
+        restart(null, false);
 
 	}
 
-    public static void restart (LevelAccessor level_accessor, boolean only_world_system, boolean message) {
+    public static void restart (LevelAccessor level_accessor, boolean config_repair) {
 
-        thread_pause = true;
+        system_pause = true;
 
-        if (only_world_system == false) {
+        Handcode.thread_main.submit(() -> {
 
-            ConfigMain.repairAll(level_accessor);
-            ConfigMain.apply(level_accessor);
+            if (config_repair == false) {
 
-        }
-
-        double cache_size = Cache.clear();
-
-        if (level_accessor == null) {
-
-            if (message == true) {
-
-                TanshugetreesMod.LOGGER.info("Restarted and cleared main caches (" + cache_size + " MB)");
+                ConfigMain.repairAll(level_accessor);
+                ConfigMain.apply();
 
             }
 
-        } else {
+            double cache_size = Cache.clear();
 
-            TanshugetreesMod.queueServerWork(20, () -> {
-
-                thread_pause = false;
+            if (level_accessor != null) {
 
                 if (level_accessor instanceof ServerLevel level_server) {
 
-                    // World Systems
-                    {
-
-                        GameUtils.command.run(level_server, 0, 0, 0, "scoreboard objectives add TANSHUGETREES dummy");
-
-                        // Season Detector
-                        {
-
-                            if (ConfigMain.serene_seasons_compatibility == true && ModList.get().isLoaded("sereneseasons") == true) {
-
-                                SeasonDetector.start(level_accessor, level_server);
-
-                            }
-
-                        }
-
-                        Loop.start(level_accessor, level_server);
-
-                    }
-
-                    if (message == true) {
-
-                        GameUtils.misc.sendChatMessage(level_server, "@a", "gray", "THT : Restarted and cleared main caches (About " + cache_size + " MB)");
-
-                    }
+                    GameUtils.misc.sendChatMessage(level_server, "@a", "gray", "THT : Restarted and cleared main caches (About " + cache_size + " MB)");
 
                 }
 
-            });
+            }
+
+            worldGenNotify();
+
+        });
+
+    }
+
+    public static void worldGenPause () {
+
+        synchronized (lock) {
+
+            while (Handcode.system_pause == true) {
+
+                try {
+
+                    lock.wait();
+
+                } catch (Exception exception) {
+
+                    Utils.misc.exception(new Exception(), exception);
+
+                }
+
+            }
+
+        }
+
+    }
+
+    public static void worldGenNotify () {
+
+        system_pause = false;
+
+        synchronized (lock) {
+
+            lock.notifyAll();
 
         }
 
     }
 
 	@SubscribeEvent
-	public static void worldAboutToStart (ServerAboutToStartEvent event) {
+	public static void eventWorldAboutToStart(ServerAboutToStartEvent event) {
 
         path_world_data = event.getServer().getWorldPath(new LevelResource(".")) + "/data/tanshugetrees";
-		restart(null, false, false);
+		restart(null, false);
 
 	}
 
 	@SubscribeEvent
-	public static void worldStarted (ServerStartedEvent event) {
+	public static void eventWorldStarted(ServerStartedEvent event) {
 
-		restart(event.getServer().overworld(), true, false);
+        ServerLevel level_server = event.getServer().overworld();
+        system_pause = true;
+
+        TanshugetreesMod.queueServerWork(20, () -> {
+
+            GameUtils.command.run(level_server, 0, 0, 0, "scoreboard objectives add TANSHUGETREES dummy");
+            Loop.start(level_server, level_server);
+
+            if (ConfigMain.serene_seasons_compatibility == true && ModList.get().isLoaded("sereneseasons") == true) {
+
+                SeasonDetector.start(level_server, level_server);
+
+            }
+
+            TanshugetreesMod.LOGGER.info("Started World Systems");
+            worldGenNotify();
+
+        });
 
 	}
 
 	@SubscribeEvent
-	public static void worldStopped (ServerStoppingEvent event) {
+	public static void eventWorldStopped(ServerStoppingEvent event) {
 
 
 
 	}
 
 	@SubscribeEvent
-	public static void playerJoined (PlayerEvent.PlayerLoggedInEvent event) {
+	public static void eventPlayerJoined(PlayerEvent.PlayerLoggedInEvent event) {
 
 		if (GameUtils.misc.playerCount() == 1) {
 
@@ -196,7 +214,7 @@ public class Handcode {
 	}
 
 	@SubscribeEvent
-	public static void chunkLoaded (ChunkEvent.Load event) {
+	public static void eventChunkLoaded(ChunkEvent.Load event) {
 
 		if (event.isNewChunk() == true) {
 
