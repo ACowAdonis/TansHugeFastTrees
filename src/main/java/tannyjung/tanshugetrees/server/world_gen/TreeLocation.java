@@ -30,6 +30,21 @@ public class TreeLocation {
     public static String world_gen_overlay_details_biome = "";
     public static String world_gen_overlay_details_tree = "";
 
+    // Optimized: Cache neighboring region files to eliminate repeated disk I/O
+    // This cache is populated at the start of region generation and cleared at the end
+    private static class RegionTreeData {
+        final String id;
+        final int posX;
+        final int posZ;
+
+        RegionTreeData(String id, int posX, int posZ) {
+            this.id = id;
+            this.posX = posX;
+            this.posZ = posZ;
+        }
+    }
+    private static final Map<String, List<RegionTreeData>> cache_region_files = new HashMap<>();
+
     public static void start (LevelAccessor level_accessor, String dimension, ChunkPos chunk_pos) {
 
         synchronized (lock) {
@@ -62,6 +77,39 @@ public class TreeLocation {
                 world_gen_overlay_animation = 4;
                 world_gen_overlay_bar = 0;
                 scanning_overlay_loop();
+
+                // Optimized: Pre-load neighboring region files to eliminate repeated disk I/O
+                {
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dz = -1; dz <= 1; dz++) {
+                            int neighborX = region_posX + dx;
+                            int neighborZ = region_posZ + dz;
+                            String regionKey = neighborX + "," + neighborZ;
+
+                            if (!cache_region_files.containsKey(regionKey)) {
+                                List<RegionTreeData> trees = new ArrayList<>();
+                                String path = Handcode.path_world_data + "/world_gen/tree_locations/" + dimension + "/" + regionKey + ".bin";
+                                File regionFile = new File(path);
+
+                                if (regionFile.exists() && regionFile.length() > 0) {
+                                    try {
+                                        ByteBuffer buffer = FileManager.readBIN(path);
+                                        while (buffer.remaining() > 0) {
+                                            String treeId = Cache.getDictionary(String.valueOf(buffer.getShort()), true);
+                                            int posX_tree = buffer.getInt();
+                                            int posZ_tree = buffer.getInt();
+                                            trees.add(new RegionTreeData(treeId, posX_tree, posZ_tree));
+                                        }
+                                    } catch (Exception e) {
+                                        // File read error - log but continue with empty list
+                                        Handcode.logger.warn("Failed to load neighboring region file: " + path);
+                                    }
+                                }
+                                cache_region_files.put(regionKey, trees);
+                            }
+                        }
+                    }
+                }
 
                 // Region Scanning
                 {
@@ -114,6 +162,8 @@ public class TreeLocation {
             cache_write_place.clear();
             cache_dead_tree_auto_level.clear();
             cache_biome_test.clear();
+            // Optimized: Clear region file cache after generation completes
+            cache_region_files.clear();
 
         }
 
@@ -575,35 +625,23 @@ public class TreeLocation {
 
                 } else {
 
-                    // Outside Region (Classic Testing)
+                    // Outside Region (Optimized: Use cached region data)
                     {
 
+                        String regionKey = scanX + "," + scanZ;
+                        List<RegionTreeData> trees = cache_region_files.getOrDefault(regionKey, new ArrayList<>());
 
-                        ByteBuffer read_all = FileManager.readBIN(Handcode.path_world_data + "/world_gen/tree_locations/" + dimension + "/" + scanX + "," + scanZ + ".bin");
+                        for (RegionTreeData tree : trees) {
 
-                        while (read_all.remaining() > 0) {
-
-                            try {
-
-                                test_id = Cache.getDictionary(String.valueOf(read_all.getShort()), true);
-                                test_posX = read_all.getInt();
-                                test_posZ = read_all.getInt();
-
-                            } catch (Exception ignored) {
-
-                                return false;
-
-                            }
-
-                            if (center_posX == test_posX && center_posZ == test_posZ) {
+                            if (center_posX == tree.posX && center_posZ == tree.posZ) {
 
                                 return false;
 
                             } else {
 
-                                if (id.equals(test_id) == true) {
+                                if (id.equals(tree.id) == true) {
 
-                                    if ((Math.abs(center_posX - test_posX) <= min_distance) && (Math.abs(center_posZ - test_posZ) <= min_distance)) {
+                                    if ((Math.abs(center_posX - tree.posX) <= min_distance) && (Math.abs(center_posZ - tree.posZ) <= min_distance)) {
 
                                         return false;
 

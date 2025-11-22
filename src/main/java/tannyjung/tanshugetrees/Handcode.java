@@ -48,7 +48,7 @@ import java.util.concurrent.Executors;
 public class Handcode {
 
     public static final int DATA_STRUCTURE_VERSION = 20251023;
-    public static final String TANNY_PACK_VERSION = "Alpha";
+    public static final String TANNY_PACK_VERSION = "WIP";
 
     public static final boolean VERSION_1192 = false;
 
