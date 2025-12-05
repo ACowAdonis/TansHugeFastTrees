@@ -29,6 +29,11 @@ import java.util.*;
 
 public class TreePlacer {
 
+    // Optimization: Buffer for batching detailed_detection file writes
+    // Instead of writing to disk for each tree (potentially 50+ writes per chunk),
+    // we accumulate writes in memory and flush once at the end of chunk processing
+    private static final Map<String, List<String>> pending_detailed_detection = new HashMap<>();
+
     public static void start (LevelAccessor level_accessor, ServerLevel level_server, ChunkGenerator chunk_generator, String dimension, ChunkPos chunk_pos) {
 
         RandomSource random = RandomSource.create(level_server.getSeed() ^ (chunk_pos.x * 341873128712L + chunk_pos.z * 132897987541L));
@@ -397,7 +402,9 @@ public class TreePlacer {
 
                             }
 
-                            // Write File
+                            // Buffer writes for batch flush (optimization)
+                            // Instead of writing immediately (N file operations per tree),
+                            // we accumulate in memory and write once at end of chunk processing
                             {
 
                                 int from_chunkX_test = from_chunkX >> 5;
@@ -416,7 +423,8 @@ public class TreePlacer {
 
                                     for (int scanZ = from_chunkZ_test; scanZ <= to_chunkZ_test; scanZ++) {
 
-                                        FileManager.writeBIN(Handcode.path_world_data + "/world_gen/detailed_detection/" + dimension + "/" + scanX + "," + scanZ + ".bin", write, true);
+                                        String key = dimension + "/" + scanX + "," + scanZ;
+                                        pending_detailed_detection.computeIfAbsent(key, k -> new ArrayList<>()).addAll(write);
 
                                     }
 
@@ -439,6 +447,31 @@ public class TreePlacer {
             }
 
         }
+
+        // Flush all buffered detailed_detection writes to disk
+        // This batches potentially 50+ individual file operations into ~9 operations (one per region file)
+        flushPendingDetailedDetection();
+
+    }
+
+    /**
+     * Flushes all pending detailed_detection writes to disk.
+     * Called at the end of chunk processing to batch file I/O operations.
+     */
+    private static void flushPendingDetailedDetection () {
+
+        if (pending_detailed_detection.isEmpty()) {
+            return;
+        }
+
+        for (Map.Entry<String, List<String>> entry : pending_detailed_detection.entrySet()) {
+
+            String path = Handcode.path_world_data + "/world_gen/detailed_detection/" + entry.getKey() + ".bin";
+            FileManager.writeBIN(path, entry.getValue(), true);
+
+        }
+
+        pending_detailed_detection.clear();
 
     }
 

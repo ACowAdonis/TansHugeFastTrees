@@ -231,24 +231,23 @@ public class TreeLocation {
 
     private static void scanning_overlay_loop () {
 
+        // CRITICAL FIX: Check animation state BEFORE scheduling next iteration
+        // Previously, the loop would reschedule itself forever even after animation completed,
+        // causing delayed_works queue to grow with each region generation
+        if (world_gen_overlay_animation == 0) {
+            return;  // Stop the loop when animation is complete
+        }
+
+        // Only schedule next iteration if animation is still active
         Handcode.createDelayedWorks(20, () -> {
-
             scanning_overlay_loop();
-
         });
 
-        if (world_gen_overlay_animation != 0) {
-
-            if (world_gen_overlay_animation < 4) {
-
-                world_gen_overlay_animation = world_gen_overlay_animation + 1;
-
-            } else {
-
-                world_gen_overlay_animation = 1;
-
-            }
-
+        // Cycle through animation frames 1 -> 2 -> 3 -> 4 -> 1 ...
+        if (world_gen_overlay_animation < 4) {
+            world_gen_overlay_animation = world_gen_overlay_animation + 1;
+        } else {
+            world_gen_overlay_animation = 1;
         }
 
     }
