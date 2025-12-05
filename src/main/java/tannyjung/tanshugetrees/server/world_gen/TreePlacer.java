@@ -32,7 +32,10 @@ public class TreePlacer {
     // Optimization: Buffer for batching detailed_detection file writes
     // Instead of writing to disk for each tree (potentially 50+ writes per chunk),
     // we accumulate writes in memory and flush once at the end of chunk processing
-    private static final Map<String, List<String>> pending_detailed_detection = new HashMap<>();
+    // CRITICAL: Must use ThreadLocal for C2ME compatibility - each parallel chunk generation
+    // thread gets its own buffer to prevent ConcurrentModificationException
+    private static final ThreadLocal<Map<String, List<String>>> pending_detailed_detection =
+            ThreadLocal.withInitial(HashMap::new);
 
     public static void start (LevelAccessor level_accessor, ServerLevel level_server, ChunkGenerator chunk_generator, String dimension, ChunkPos chunk_pos) {
 
@@ -424,7 +427,7 @@ public class TreePlacer {
                                     for (int scanZ = from_chunkZ_test; scanZ <= to_chunkZ_test; scanZ++) {
 
                                         String key = dimension + "/" + scanX + "," + scanZ;
-                                        pending_detailed_detection.computeIfAbsent(key, k -> new ArrayList<>()).addAll(write);
+                                        pending_detailed_detection.get().computeIfAbsent(key, k -> new ArrayList<>()).addAll(write);
 
                                     }
 
@@ -457,21 +460,24 @@ public class TreePlacer {
     /**
      * Flushes all pending detailed_detection writes to disk.
      * Called at the end of chunk processing to batch file I/O operations.
+     * Uses thread-local buffer for C2ME compatibility (each thread flushes its own buffer).
      */
     private static void flushPendingDetailedDetection () {
 
-        if (pending_detailed_detection.isEmpty()) {
+        Map<String, List<String>> buffer = pending_detailed_detection.get();
+
+        if (buffer.isEmpty()) {
             return;
         }
 
-        for (Map.Entry<String, List<String>> entry : pending_detailed_detection.entrySet()) {
+        for (Map.Entry<String, List<String>> entry : buffer.entrySet()) {
 
             String path = Handcode.path_world_data + "/world_gen/detailed_detection/" + entry.getKey() + ".bin";
             FileManager.writeBIN(path, entry.getValue(), true);
 
         }
 
-        pending_detailed_detection.clear();
+        buffer.clear();
 
     }
 
