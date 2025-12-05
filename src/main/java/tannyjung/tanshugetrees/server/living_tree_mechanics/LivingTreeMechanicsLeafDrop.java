@@ -18,10 +18,12 @@ public class LivingTreeMechanicsLeafDrop {
         int posY = entity.getBlockY();
         int posZ = entity.getBlockZ();
 
-        // If Area Loaded
+        // If Area Loaded (C2ME-compatible chunk check)
         {
 
-            if (level_server.isLoaded(entity.blockPosition()) == false) {
+            int chunkX = posX >> 4;
+            int chunkZ = posZ >> 4;
+            if (level_server.getChunkSource().getChunkNow(chunkX, chunkZ) == null) {
 
                 return;
 

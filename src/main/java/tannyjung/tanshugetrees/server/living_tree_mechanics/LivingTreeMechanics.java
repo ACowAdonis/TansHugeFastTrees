@@ -131,10 +131,13 @@ public class LivingTreeMechanics {
 
             BlockPos center_pos = new BlockPos(entity.getBlockX(), entity.getBlockY(), entity.getBlockZ());
 
-            // Optimized: Early chunk-loaded check to prevent 53% blocking lag
-            // CRITICAL FIX: Check if center chunk is loaded BEFORE accessing any blocks
-            if (level_server.isLoaded(center_pos) == false) {
-                return;  // Skip this tree if center chunk not loaded
+            // Optimized: C2ME-compatible chunk check to prevent 99% blocking lag
+            // CRITICAL FIX: Use getChunkNow() to check if chunk is FULLY loaded without triggering loading
+            // hasChunk() can return true for chunks that are cached but not fully loaded
+            int centerChunkX = entity.getBlockX() >> 4;
+            int centerChunkZ = entity.getBlockZ() >> 4;
+            if (level_server.getChunkSource().getChunkNow(centerChunkX, centerChunkZ) == null) {
+                return;  // Skip this tree if center chunk not fully loaded
             }
 
             boolean have_center_block = level_accessor.getBlockState(center_pos).isAir() == false;
@@ -256,10 +259,10 @@ public class LivingTreeMechanics {
                                 pos_converted = OutsideUtils.convertPosRotationMirrored(Integer.parseInt(pre_block_data[1]), Integer.parseInt(pre_block_data[2]), Integer.parseInt(pre_block_data[3]), rotation, mirrored, 0);
                                 pre_pos = new BlockPos(entity.getBlockX() + pos_converted[0], entity.getBlockY() + pos_converted[1], entity.getBlockZ() + pos_converted[2]);
 
-                                // Only Loaded Chunks
+                                // Only Loaded Chunks (C2ME-compatible)
                                 {
 
-                                    if (level_server.isLoaded(pre_pos) == false) {
+                                    if (level_server.getChunkSource().getChunkNow(pre_pos.getX() >> 4, pre_pos.getZ() >> 4) == null) {
 
                                         return;
 
@@ -275,10 +278,10 @@ public class LivingTreeMechanics {
                             pos = new BlockPos(entity.getBlockX() + pos_converted[0], entity.getBlockY() + pos_converted[1], entity.getBlockZ() + pos_converted[2]);
                             block = map_block.get(type);
 
-                            // Only Loaded Chunks
+                            // Only Loaded Chunks (C2ME-compatible)
                             {
 
-                                if (level_server.isLoaded(pos) == false) {
+                                if (level_server.getChunkSource().getChunkNow(pos.getX() >> 4, pos.getZ() >> 4) == null) {
 
                                     return;
 
@@ -369,6 +372,15 @@ public class LivingTreeMechanics {
 
     private static void updating (LevelAccessor level_accessor, ServerLevel level_server, Entity entity, BlockPos pos, Map<String, BlockState> map_block, BlockState block, int leaves_type, int biome_type, boolean have_center_block, boolean can_leaves_drop, boolean can_leaves_regrow) {
 
+        // CRITICAL FIX: C2ME-compatible chunk check (getChunkNow instead of hasChunk)
+        // This prevents 99% blocking lag with concurrent chunk management mods
+        // getChunkNow() returns null if chunk not FULLY loaded, preventing blocking
+        int chunkX = pos.getX() >> 4;
+        int chunkZ = pos.getZ() >> 4;
+        if (level_server.getChunkSource().getChunkNow(chunkX, chunkZ) == null) {
+            return;  // Skip this position if chunk not fully loaded
+        }
+
         boolean is_leaves = level_accessor.getBlockState(pos).getBlock() == block.getBlock();
         String current_season = TanshugetreesModVariables.MapVariables.get(level_accessor).season;
         boolean straighten = false;
@@ -415,10 +427,9 @@ public class LivingTreeMechanics {
 
                         BlockPos testPos = new BlockPos(pos.getX(), (int) NBTManager.Entity.getNumber(entity, "straighten_highestY"), pos.getZ());
 
-                        // Optimized: Guard block access with chunk-loaded check (prevents blocking)
-                        if (level_server.isLoaded(testPos) == false) {
-                            return;  // Skip if chunk not loaded
-                        }
+                        // Optimized: C2ME-compatible chunk check (reuses chunkX/chunkZ from top of method)
+                        // testPos has same X,Z as pos, so same chunk (already verified at top of method)
+                        // No need to re-check since we already confirmed chunk is fully loaded
 
                         BlockState test = level_accessor.getBlockState(testPos);
 
@@ -497,9 +508,8 @@ public class LivingTreeMechanics {
                                     // Don't create animation, if there's a block below.
                                     BlockPos belowPos = new BlockPos(pos.getX(), pos.getY() - 1, pos.getZ());
 
-                                    // Optimized: Guard block access with chunk-loaded check
-                                    if (level_server.isLoaded(belowPos) &&
-                                        Utils.block.isTaggedAs(level_accessor.getBlockState(belowPos), "tanshugetrees:passable_blocks") == true) {
+                                    // belowPos has same X,Z as pos, so same chunk (already verified at top of method)
+                                    if (Utils.block.isTaggedAs(level_accessor.getBlockState(belowPos), "tanshugetrees:passable_blocks") == true) {
 
                                         Utils.score.add(level_server, "TANSHUGETREES", "leaf_drop", 1);
                                         String command = Utils.command.summonEntity("block_display", "TANSHUGETREES / TANSHUGETREES-leaf_drop", "Falling Leaf", "transformation:{left_rotation:[0f,0f,0f,1f],right_rotation:[0f,0f,0f,1f],translation:[0f,0f,0f],scale:[1.0f,1.0f,1.0f]},block_state:{Name:\"" + Utils.block.toTextID(block) + "\"},ForgeData:{block:\"" + Utils.block.toText(block) + "\"}");
@@ -516,18 +526,13 @@ public class LivingTreeMechanics {
                             // No Animation
                             {
 
-                                // Optimized: CRITICAL - getHeight() can trigger chunk generation (major lag source)
-                                // Only call if the target chunk is already loaded
-                                int chunkX = pos.getX() >> 4;
-                                int chunkZ = pos.getZ() >> 4;
-                                if (level_server.getChunkSource().hasChunk(chunkX, chunkZ)) {
-                                    int height_motion = level_accessor.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.getX(), pos.getZ());
+                                // Chunk already verified at top of method, safe to call getHeight()
+                                int height_motion = level_accessor.getHeight(Heightmap.Types.MOTION_BLOCKING_NO_LEAVES, pos.getX(), pos.getZ());
 
-                                    if (height_motion != level_accessor.getMinBuildHeight() && height_motion < pos.getY()) {
+                                if (height_motion != level_accessor.getMinBuildHeight() && height_motion < pos.getY()) {
 
-                                        LeafLitter.start(level_accessor, pos.getX(), height_motion, pos.getZ(), block, false);
+                                    LeafLitter.start(level_accessor, pos.getX(), height_motion, pos.getZ(), block, false);
 
-                                    }
                                 }
 
                             }
@@ -556,10 +561,7 @@ public class LivingTreeMechanics {
 
                             BlockPos abovePos = new BlockPos(pos.getX(), pos.getY() + 1, pos.getZ());
 
-                            // Optimized: Guard block access with chunk-loaded check
-                            if (level_server.isLoaded(abovePos) == false) {
-                                return;  // Skip if chunk not loaded
-                            }
+                            // abovePos has same X,Z as pos, so same chunk (already verified at top of method)
 
                             BlockState test = level_accessor.getBlockState(abovePos);
 

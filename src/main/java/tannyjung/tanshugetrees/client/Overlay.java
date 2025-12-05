@@ -26,7 +26,8 @@ public class Overlay {
     @SubscribeEvent(priority = EventPriority.NORMAL)
     public static void eventMenu (ScreenEvent.Render.Post event) {
 
-        OverlayMaker.Manu.image(event, "internet", "aaa" , "https://yt3.googleusercontent.com/lFP2bfvXbKYNoqlLkF6Gz7tN3uvjEEzNNMy8oYkBTlz6HtGDn-xEGoUBGuo_lEZbYVHTAp6a=s900-c-k-c0x00ffffff-no-rj", 10, 50, 100, 100, 1, 1, 1);
+        // Removed: Internet-loaded image overlay
+        // OverlayMaker.Manu.image(event, "internet", "aaa" , "https://yt3.googleusercontent.com/lFP2bfvXbKYNoqlLkF6Gz7tN3uvjEEzNNMy8oYkBTlz6HtGDn-xEGoUBGuo_lEZbYVHTAp6a=s900-c-k-c0x00ffffff-no-rj", 10, 50, 100, 100, 1, 1, 1);
 
 
 
