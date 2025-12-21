@@ -24,7 +24,9 @@ public class TreeLocation {
     private static final Map<String, List<String>> cache_write_tree_location = new HashMap<>();
     private static final Map<String, List<String>> cache_write_place = new HashMap<>();
     private static final Map<String, List<String>> cache_dead_tree_auto_level = new HashMap<>();
-    private static final Map<String, Boolean> cache_biome_test = new HashMap<>();
+    // B1 Optimization: Use long keys instead of String concatenation
+    // Upper 32 bits = biome ID hash, lower 32 bits = species ID hash
+    private static final Map<Long, Boolean> cache_biome_test = new HashMap<>();
     public static int world_gen_overlay_animation = 0;
     public static int world_gen_overlay_bar = 0;
     public static String world_gen_overlay_details_biome = "";
@@ -347,7 +349,8 @@ public class TreeLocation {
             }
 
             // Biome test (with caching) - uses chunk-level biome sample
-            String biomeTestKey = chunk_biome_id + "|" + species.id;
+            // B1 Optimization: Use long key instead of String concatenation
+            long biomeTestKey = ((long)chunk_biome_id.hashCode() << 32) | (species.id.hashCode() & 0xFFFFFFFFL);
             if (cache_biome_test.containsKey(biomeTestKey)) {
                 if (!cache_biome_test.get(biomeTestKey)) {
                     debug_biome_fail++;

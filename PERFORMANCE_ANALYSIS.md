@@ -25,6 +25,9 @@ This document captures the full analysis of Tan's world generation algorithm, ex
 | Storage file list caching (A2/G1) | 0081072 | Eliminates File.listFiles() per tree |
 | Beta tree pack format support | ddbede7 | Variable header auto-detection |
 | WIP version check skip | ddbede7 | Prevents 404 errors |
+| Early-out before lock (C1) | ddbede7 | Skip lock for scanned regions |
+| getBiome() once per chunk (D1) | ddbede7 | 35× fewer biome calls |
+| Long biome cache keys (B1) | pending | Eliminates string concatenation |
 
 ### Key Bug Fixes
 - ConcurrentModificationException with C2ME parallel chunk generation
@@ -526,7 +529,7 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 
 | Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **B1** | Replace string-based biome cache keys with integer/long keys | HIGH | Low | OPEN |
+| **B1** | Replace string-based biome cache keys with integer/long keys | HIGH | Low | ✅ DONE |
 | **B2** | Eliminate all string concatenation in hot paths | HIGH | Medium | OPEN |
 | **B3** | Pre-parse all config values into typed fields (no runtime parsing) | HIGH | Medium | ✅ DONE (0081072) |
 | **B4** | Replace String species IDs with integer IDs where possible | MEDIUM | Medium | OPEN |
@@ -535,7 +538,7 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 
 | Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **C1** | Implement early-out before lock (check region exists first) | CRITICAL | Low | OPEN |
+| **C1** | Implement early-out before lock (check region exists first) | CRITICAL | Low | ✅ DONE |
 | **C2** | Replace global lock with per-region locks | HIGH | Medium | OPEN |
 | **C3** | Make all shared data structures thread-safe for C2ME | HIGH | Medium | ✅ PARTIAL (ThreadLocal buffers) |
 | **C4** | Investigate background thread pool for region pre-computation | MEDIUM | High | OPEN |
@@ -545,7 +548,7 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 
 | Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **D1** | Call getBiome() once per chunk, not once per species | HIGH | Low | OPEN |
+| **D1** | Call getBiome() once per chunk, not once per species | HIGH | Low | ✅ DONE |
 | **D2** | Implement species filtering by biome/latitude before iteration | MEDIUM | Medium | OPEN |
 | **D3** | Early-exit chunks where no species can possibly spawn | MEDIUM | Medium | OPEN |
 | **D4** | Investigate early-out for parts of region (e.g., all ocean) | LOW | Medium | OPEN |
