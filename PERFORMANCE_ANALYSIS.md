@@ -2,10 +2,34 @@
 
 This document captures the full analysis of Tan's world generation algorithm, existing optimizations, identified bottlenecks, and a prioritized task list for future improvements.
 
-**Branch:** `1.20.1-2025.2-sisterpc-perf-review`
+**Branch:** `1.20.1-2025.2-sisterpc-perf-impl`
 **Date:** 2025-12-21
 **Memory Budget:** 100 MB for caching and optimization
 **Constraint:** Must remain compatible with C2ME parallel chunk generation
+
+---
+
+## Implementation Status Summary
+
+### Completed Optimizations (This Branch)
+
+| Optimization | Commit | Impact |
+|--------------|--------|--------|
+| Region file caching (9-region pre-load) | 848d8d6 | Eliminates repeated disk reads |
+| Spatial hash grid O(1) proximity | bf92a67 | ~35× faster distance checks |
+| Living Tree Mechanics lag fix | d064b9a | 84% → ~5% server time |
+| C2ME getChunkNow() compatibility | 246b78f | Prevents chunk deadlocks |
+| Infinite overlay loop fix | be9cdea | Eliminates CPU waste |
+| ThreadLocal batch I/O | 570eae7 | C2ME-safe file writes |
+| Pre-parsed species config (A1+B3) | 0081072 | Eliminates 7.7M string comparisons |
+| Storage file list caching (A2/G1) | 0081072 | Eliminates File.listFiles() per tree |
+| Beta tree pack format support | ddbede7 | Variable header auto-detection |
+| WIP version check skip | ddbede7 | Prevents 404 errors |
+
+### Key Bug Fixes
+- ConcurrentModificationException with C2ME parallel chunk generation
+- Beta tree pack binary format (16+ short header vs 12)
+- info.txt / path_settings format support
 
 ---
 
@@ -490,70 +514,70 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 
 ### Category A: Config & Startup Caching
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **A1** | Parse `config_world_gen.txt` once at startup into structured data | HIGH | Low | TBD |
-| **A2** | Pre-index shape files per species at startup (eliminate File.listFiles) | HIGH | Low | TBD |
-| **A3** | Load all tree shapes into memory (~10-50 MB) | HIGH | Medium | TBD |
-| **A4** | Pre-compute biome-species compatibility lookup table (integer keys) | MEDIUM | Low | TBD |
-| **A5** | Calculate memory usage of loading all tree models/properties | HIGH | Low | TBD |
+| **A1** | Parse `config_world_gen.txt` once at startup into structured data | HIGH | Low | ✅ DONE (0081072) |
+| **A2** | Pre-index shape files per species at startup (eliminate File.listFiles) | HIGH | Low | ✅ DONE (0081072) |
+| **A3** | Load all tree shapes into memory (~10-50 MB) | HIGH | Medium | OPEN |
+| **A4** | Pre-compute biome-species compatibility lookup table (integer keys) | MEDIUM | Low | OPEN |
+| **A5** | Calculate memory usage of loading all tree models/properties | HIGH | Low | OPEN |
 
 ### Category B: String Parsing & Runtime Overhead
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **B1** | Replace string-based biome cache keys with integer/long keys | HIGH | Low | TBD |
-| **B2** | Eliminate all string concatenation in hot paths | HIGH | Medium | TBD |
-| **B3** | Pre-parse all config values into typed fields (no runtime parsing) | HIGH | Medium | TBD |
-| **B4** | Replace String species IDs with integer IDs where possible | MEDIUM | Medium | TBD |
+| **B1** | Replace string-based biome cache keys with integer/long keys | HIGH | Low | OPEN |
+| **B2** | Eliminate all string concatenation in hot paths | HIGH | Medium | OPEN |
+| **B3** | Pre-parse all config values into typed fields (no runtime parsing) | HIGH | Medium | ✅ DONE (0081072) |
+| **B4** | Replace String species IDs with integer IDs where possible | MEDIUM | Medium | OPEN |
 
 ### Category C: Global Lock Removal & Threading
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **C1** | Implement early-out before lock (check region exists first) | CRITICAL | Low | TBD |
-| **C2** | Replace global lock with per-region locks | HIGH | Medium | TBD |
-| **C3** | Make all shared data structures thread-safe for C2ME | HIGH | Medium | TBD |
-| **C4** | Investigate background thread pool for region pre-computation | MEDIUM | High | TBD |
-| **C5** | Implement two-phase architecture (background compute, sync placement) | MEDIUM | High | TBD |
+| **C1** | Implement early-out before lock (check region exists first) | CRITICAL | Low | OPEN |
+| **C2** | Replace global lock with per-region locks | HIGH | Medium | OPEN |
+| **C3** | Make all shared data structures thread-safe for C2ME | HIGH | Medium | ✅ PARTIAL (ThreadLocal buffers) |
+| **C4** | Investigate background thread pool for region pre-computation | MEDIUM | High | OPEN |
+| **C5** | Implement two-phase architecture (background compute, sync placement) | MEDIUM | High | OPEN |
 
 ### Category D: Region Scan Optimization
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **D1** | Call getBiome() once per chunk, not once per species | HIGH | Low | TBD |
-| **D2** | Implement species filtering by biome/latitude before iteration | MEDIUM | Medium | TBD |
-| **D3** | Early-exit chunks where no species can possibly spawn | MEDIUM | Medium | TBD |
-| **D4** | Investigate early-out for parts of region (e.g., all ocean) | LOW | Medium | TBD |
-| **D5** | Optimize chunk existence check loop (batch or cache) | MEDIUM | Medium | TBD |
+| **D1** | Call getBiome() once per chunk, not once per species | HIGH | Low | OPEN |
+| **D2** | Implement species filtering by biome/latitude before iteration | MEDIUM | Medium | OPEN |
+| **D3** | Early-exit chunks where no species can possibly spawn | MEDIUM | Medium | OPEN |
+| **D4** | Investigate early-out for parts of region (e.g., all ocean) | LOW | Medium | OPEN |
+| **D5** | Optimize chunk existence check loop (batch or cache) | MEDIUM | Medium | OPEN |
 
 ### Category E: Region Caching Expansion
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **E1** | Expand region cache to use ~50 MB budget (100+ regions) | MEDIUM | Medium | TBD |
-| **E2** | Implement LRU eviction for region cache | MEDIUM | Low | TBD |
-| **E3** | Investigate predictive region pre-loading (player movement) | MEDIUM | Medium | TBD |
-| **E4** | Cache region data in memory, eliminate disk reads after first load | HIGH | Medium | TBD |
+| **E1** | Expand region cache to use ~50 MB budget (100+ regions) | MEDIUM | Medium | OPEN |
+| **E2** | Implement LRU eviction for region cache | MEDIUM | Low | OPEN |
+| **E3** | Investigate predictive region pre-loading (player movement) | MEDIUM | Medium | OPEN |
+| **E4** | Cache region data in memory, eliminate disk reads after first load | HIGH | Medium | ✅ PARTIAL (9 regions) |
 
 ### Category F: Living Tree & Marker Entities
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **F1** | Evaluate impact of disabling marker entities entirely | HIGH | Very Low | TBD |
-| **F2** | If markers needed, replace with in-memory registry | MEDIUM | High | TBD |
-| **F3** | If markers needed, eliminate command-based spawning | MEDIUM | Medium | TBD |
-| **F4** | Document which living tree features require markers | LOW | Very Low | TBD |
+| **F1** | Evaluate impact of disabling marker entities entirely | HIGH | Very Low | OPEN |
+| **F2** | If markers needed, replace with in-memory registry | MEDIUM | High | OPEN |
+| **F3** | If markers needed, eliminate command-based spawning | MEDIUM | Medium | OPEN |
+| **F4** | Document which living tree features require markers | LOW | Very Low | OPEN |
 
 ### Category G: Disk I/O Elimination
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **G1** | Eliminate File.listFiles() for shape selection (use cached index) | HIGH | Low | TBD |
-| **G2** | Keep all tree shapes in memory after first load | HIGH | Medium | TBD |
-| **G3** | Cache detailed_detection per chunk instead of per tree | MEDIUM | Low | TBD |
-| **G4** | Investigate memory-mapping region files for faster access | LOW | High | TBD |
-| **G5** | In-memory placement cache with lazy file persistence | HIGH | Medium | TBD |
+| **G1** | Eliminate File.listFiles() for shape selection (use cached index) | HIGH | Low | ✅ DONE (0081072) |
+| **G2** | Keep all tree shapes in memory after first load | HIGH | Medium | OPEN |
+| **G3** | Cache detailed_detection per chunk instead of per tree | MEDIUM | Low | ✅ DONE (570eae7) |
+| **G4** | Investigate memory-mapping region files for faster access | LOW | High | OPEN |
+| **G5** | In-memory placement cache with lazy file persistence | HIGH | Medium | OPEN (designed) |
 
 #### G5: In-Memory Placement Cache - Detailed Design
 
@@ -615,11 +639,11 @@ Cache.flushPendingPersistence();
 
 ### Category H: Modpack-Specific Optimizations
 
-| Task ID | Task | Priority | Complexity | Branch |
+| Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
-| **H1** | Implement latitude/climate band filtering for species | MEDIUM | Medium | TBD |
-| **H2** | Pre-compute valid species sets per biome | MEDIUM | Medium | TBD |
-| **H3** | Skip species entirely outside their latitude range | MEDIUM | Low | TBD |
+| **H1** | Implement latitude/climate band filtering for species | MEDIUM | Medium | OPEN |
+| **H2** | Pre-compute valid species sets per biome | MEDIUM | Medium | OPEN |
+| **H3** | Skip species entirely outside their latitude range | MEDIUM | Low | OPEN |
 
 ---
 
@@ -698,4 +722,5 @@ ConfigMain.java:
 ---
 
 *Document updated: December 2025*
-*Branch: 1.20.1-2025.2-sisterpc-perf-review*
+*Branch: 1.20.1-2025.2-sisterpc-perf-impl*
+*Last commit: ddbede7 (Add beta tree pack format support and fix WIP version check)*
