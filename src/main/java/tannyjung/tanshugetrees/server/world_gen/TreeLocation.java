@@ -163,12 +163,19 @@ public class TreeLocation {
 
             if (file.exists() == true && file.isDirectory() == false) {
 
+                // Performance timing - grep for "THT-PERF:" to extract metrics
+                long perf_start = System.nanoTime();
+                long perf_neighbor = 0;
+                long perf_scan = 0;
+                long perf_write = 0;
+
                 Handcode.logger.info("Generating tree locations for a new region ({} -> {}/{})", dimension.replace("-", ":"), region_posX, region_posZ);
                 world_gen_overlay_animation = 4;
                 world_gen_overlay_bar = 0;
                 scanning_overlay_loop();
 
                 // Optimized: Pre-load neighboring region files and populate spatial grid
+                long perf_neighbor_start = System.nanoTime();
                 {
                     for (int dx = -1; dx <= 1; dx++) {
                         for (int dz = -1; dz <= 1; dz++) {
@@ -202,8 +209,10 @@ public class TreeLocation {
                         }
                     }
                 }
+                perf_neighbor = System.nanoTime() - perf_neighbor_start;
 
                 // Region Scanning
+                long perf_scan_start = System.nanoTime();
                 {
 
                     String[] config_world_gen = FileManager.readTXT(file.getPath());
@@ -234,6 +243,7 @@ public class TreeLocation {
                     }
 
                 }
+                perf_scan = System.nanoTime() - perf_scan_start;
 
                 world_gen_overlay_animation = 0;
 
@@ -254,6 +264,7 @@ public class TreeLocation {
                 Handcode.logger.info("Completed!");
 
                 // Write File
+                long perf_write_start = System.nanoTime();
                 {
 
                     for (Map.Entry<String, List<String>> entry : cache_write_tree_location.entrySet()) {
@@ -269,6 +280,19 @@ public class TreeLocation {
                     }
 
                 }
+                perf_write = System.nanoTime() - perf_write_start;
+
+                // Performance summary - grep for "THT-PERF:" to extract metrics
+                // Format: THT-PERF: region=X,Z total=Xms neighbor=Xms scan=Xms write=Xms trees=N species=N
+                long perf_total = System.nanoTime() - perf_start;
+                Handcode.logger.info("THT-PERF: region={},{} total={}ms neighbor={}ms scan={}ms write={}ms trees={} species={}",
+                    region_posX, region_posZ,
+                    perf_total / 1_000_000,
+                    perf_neighbor / 1_000_000,
+                    perf_scan / 1_000_000,
+                    perf_write / 1_000_000,
+                    totalTrees,
+                    Cache.getEnabledSpecies().size());
 
             }
 
