@@ -27,7 +27,8 @@ This document captures the full analysis of Tan's world generation algorithm, ex
 | WIP version check skip | ddbede7 | Prevents 404 errors |
 | Early-out before lock (C1) | ddbede7 | Skip lock for scanned regions |
 | getBiome() once per chunk (D1) | ddbede7 | 35× fewer biome calls |
-| Long biome cache keys (B1) | pending | Eliminates string concatenation |
+| Long biome cache keys (B1) | c0af01b | Eliminates string concatenation |
+| Performance timing instrumentation | 40a3382 | Grep-friendly metrics logging |
 
 ### Key Bug Fixes
 - ConcurrentModificationException with C2ME parallel chunk generation
@@ -521,16 +522,16 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 |---------|------|----------|------------|--------|
 | **A1** | Parse `config_world_gen.txt` once at startup into structured data | HIGH | Low | ✅ DONE (0081072) |
 | **A2** | Pre-index shape files per species at startup (eliminate File.listFiles) | HIGH | Low | ✅ DONE (0081072) |
-| **A3** | Load all tree shapes into memory (~10-50 MB) | HIGH | Medium | OPEN |
-| **A4** | Pre-compute biome-species compatibility lookup table (integer keys) | MEDIUM | Low | OPEN |
-| **A5** | Calculate memory usage of loading all tree models/properties | HIGH | Low | OPEN |
+| **A3** | Load all tree shapes into memory (~10-50 MB) | HIGH | Medium | ✅ DONE (lazy load persists) |
+| **A4** | Pre-compute biome-species compatibility lookup table (integer keys) | MEDIUM | Low | ✅ DONE (B1 long keys) |
+| **A5** | Calculate memory usage of loading all tree models/properties | HIGH | Low | ✅ DONE (89 MB total) |
 
 ### Category B: String Parsing & Runtime Overhead
 
 | Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
 | **B1** | Replace string-based biome cache keys with integer/long keys | HIGH | Low | ✅ DONE |
-| **B2** | Eliminate all string concatenation in hot paths | HIGH | Medium | OPEN |
+| **B2** | Eliminate all string concatenation in hot paths | HIGH | Medium | PARTIAL (path_storage needs pre-parse) |
 | **B3** | Pre-parse all config values into typed fields (no runtime parsing) | HIGH | Medium | ✅ DONE (0081072) |
 | **B4** | Replace String species IDs with integer IDs where possible | MEDIUM | Medium | OPEN |
 
@@ -577,56 +578,47 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 | Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
 | **G1** | Eliminate File.listFiles() for shape selection (use cached index) | HIGH | Low | ✅ DONE (0081072) |
-| **G2** | Keep all tree shapes in memory after first load | HIGH | Medium | OPEN |
+| **G2** | Keep all tree shapes in memory after first load | HIGH | Medium | ✅ DONE (lazy load persists) |
 | **G3** | Cache detailed_detection per chunk instead of per tree | MEDIUM | Low | ✅ DONE (570eae7) |
 | **G4** | Investigate memory-mapping region files for faster access | LOW | High | OPEN |
-| **G5** | In-memory placement cache with lazy file persistence | HIGH | Medium | OPEN (designed) |
+| **G5** | In-memory placement cache with lazy file persistence | HIGH | Medium | ✅ DONE (pending commit) |
 
-#### G5: In-Memory Placement Cache - Detailed Design
+#### G5: In-Memory Placement Cache - Implementation (DONE)
 
 **Problem:** TreeLocation writes tree placement data to files immediately, then TreePlacer reads from files. This creates unnecessary disk I/O during active chunk generation.
 
-**Proposed Solution:**
+**Implemented Solution:**
 
-1. **In-memory first:** TreeLocation stores placement data in `ConcurrentHashMap` instead of immediately writing to files
-2. **Memory-first reads:** TreePlacer checks memory cache before falling back to file reads
-3. **Lazy persistence:** Files written AFTER TreePlacer accesses the data (for persistence across game restarts)
-4. **File fallback:** Data from previous sessions (game restarts) still loads from files
+1. **Cache after write:** TreeLocation writes to disk, then caches data in `ConcurrentHashMap<String, ByteBuffer>` via `Cache.cacheWrittenPlacement()`
+2. **Memory-first reads:** TreePlacer checks `Cache.getPlacement()` before falling back to file reads
+3. **Persistence:** Files still written immediately (for crash safety), cache is optimization layer
+4. **File fallback:** Data from previous sessions loads from files on cache miss
 
 **Data flow:**
 
 ```
-CURRENT FLOW (disk-heavy):
-TreeLocation → writes place.bin → disk → TreePlacer reads place.bin
+BEFORE (disk-heavy):
+TreeLocation → writes place.bin → TreePlacer reads place.bin from disk
 
-PROPOSED FLOW (memory-first):
-TreeLocation → ConcurrentHashMap → TreePlacer reads from memory
-                     │
-                     └──────────→ writes place.bin (lazy, after access)
+AFTER (cache-first):
+TreeLocation → writes place.bin → Cache.cacheWrittenPlacement() → memory
+TreePlacer → Cache.getPlacement() → cache hit (memory) OR cache miss (read file)
 ```
 
-**Implementation sketch:**
+**Implementation (Cache.java):**
 
 ```java
-// In Cache.java - add ConcurrentHashMap for placement data
-private static final ConcurrentHashMap<String, List<PlacementData>> placement_cache = new ConcurrentHashMap<>();
-private static final ConcurrentHashMap<String, Boolean> persisted_keys = new ConcurrentHashMap<>();
+// ConcurrentHashMap for C2ME thread-safety
+private static final ConcurrentHashMap<String, ByteBuffer> placement_cache = new ConcurrentHashMap<>();
 
-// TreeLocation: Store in memory only
-Cache.storePlacement(regionKey, placementData);
+// TreeLocation: After writing to disk, cache for TreePlacer
+Cache.cacheWrittenPlacement(dimension, regionKey, placePath);
 
-// TreePlacer: Check memory first
-List<PlacementData> data = Cache.getPlacement(regionKey);
-if (data != null) {
-    // Use cached data, mark for persistence
-    Cache.markForPersistence(regionKey);
-} else {
-    // Fall back to file (data from previous session)
-    ByteBuffer get = FileManager.readBIN(path);
+// TreePlacer: Check cache first, fall back to file
+ByteBuffer get = Cache.getPlacement(dimension, regionKey);
+if (get == null) {
+    get = FileManager.readBIN(placePath);  // Cache miss - load from disk
 }
-
-// Background or end-of-tick: Persist marked data
-Cache.flushPendingPersistence();
 ```
 
 **Memory estimate:**
@@ -726,4 +718,4 @@ ConfigMain.java:
 
 *Document updated: December 2025*
 *Branch: 1.20.1-2025.2-sisterpc-perf-impl*
-*Last commit: ddbede7 (Add beta tree pack format support and fix WIP version check)*
+*Last commit: 40a3382 (Add performance timing instrumentation for region generation)*

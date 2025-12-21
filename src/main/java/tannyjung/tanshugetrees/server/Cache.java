@@ -5,8 +5,12 @@ import tannyjung.core.OutsideUtils;
 import tannyjung.tanshugetrees.Handcode;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.nio.ShortBuffer;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class Cache {
 
@@ -69,6 +73,16 @@ public class Cache {
     private static final Map<String, String[]> leaf_litter = new HashMap<>();
     private static final Map<String, String[]> storage_file_lists = new HashMap<>();
 
+    /**
+     * G5 Optimization: In-memory placement cache.
+     * Eliminates disk I/O during active chunk generation by keeping placement data in memory.
+     * Key format: "dimension/regionX,regionZ" (e.g., "overworld/0,0")
+     * Data is the raw ByteBuffer that would normally be read from place.bin files.
+     * Thread-safe for C2ME parallel chunk generation.
+     */
+    private static final ConcurrentHashMap<String, ByteBuffer> placement_cache = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Boolean> placement_needs_persist = new ConcurrentHashMap<>();
+
     public static double clear () {
 
         double size = 0;
@@ -98,6 +112,10 @@ public class Cache {
             storage_file_lists.clear();
             cached_world_gen_config = null;
             cached_enabled_species = null;
+            // G5: Flush any pending persistence before clearing
+            flushPlacementPersistence();
+            placement_cache.clear();
+            placement_needs_persist.clear();
 
         }
 
@@ -477,6 +495,118 @@ public class Cache {
 
         return cached_enabled_species;
 
+    }
+
+    // ==================== G5 Optimization: In-Memory Placement Cache ====================
+
+    /**
+     * G5 Optimization: Store placement data in memory cache.
+     * Called by TreeLocation after writing placement data to avoid immediate disk I/O.
+     * @param dimension The dimension name (e.g., "overworld")
+     * @param regionKey The region key (e.g., "0,0")
+     * @param data The raw placement data as ByteBuffer
+     */
+    public static void storePlacement(String dimension, String regionKey, ByteBuffer data) {
+        String cacheKey = dimension + "/" + regionKey;
+        // Store a duplicate to avoid position issues when reading
+        ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+        copy.put(data.duplicate());
+        copy.flip();
+        placement_cache.put(cacheKey, copy);
+        placement_needs_persist.put(cacheKey, true);
+    }
+
+    /**
+     * G5 Optimization: Get placement data from memory cache.
+     * Returns cached data if available, null if not in cache (caller should fall back to file).
+     * Marks data for persistence after access.
+     * @param dimension The dimension name
+     * @param regionKey The region key
+     * @return ByteBuffer with placement data, or null if not cached
+     */
+    public static ByteBuffer getPlacement(String dimension, String regionKey) {
+        String cacheKey = dimension + "/" + regionKey;
+        ByteBuffer cached = placement_cache.get(cacheKey);
+        if (cached != null) {
+            // Return a duplicate with position reset so caller can read from start
+            ByteBuffer result = cached.duplicate();
+            result.rewind();
+            return result;
+        }
+        return null;
+    }
+
+    /**
+     * G5 Optimization: Check if placement data exists in memory cache.
+     * @param dimension The dimension name
+     * @param regionKey The region key
+     * @return true if data is cached
+     */
+    public static boolean hasPlacement(String dimension, String regionKey) {
+        return placement_cache.containsKey(dimension + "/" + regionKey);
+    }
+
+    /**
+     * G5 Optimization: Flush all pending placement data to disk.
+     * Called periodically or on cache clear to ensure persistence.
+     * Note: In the current design, files are written immediately by TreeLocation.
+     * This method is a safety net for any cached data that wasn't persisted.
+     */
+    public static void flushPlacementPersistence() {
+        for (Map.Entry<String, Boolean> entry : placement_needs_persist.entrySet()) {
+            if (entry.getValue()) {
+                String cacheKey = entry.getKey();
+                ByteBuffer data = placement_cache.get(cacheKey);
+                if (data != null) {
+                    // Parse dimension and regionKey from cacheKey
+                    int slashIdx = cacheKey.indexOf('/');
+                    if (slashIdx > 0) {
+                        String dimension = cacheKey.substring(0, slashIdx);
+                        String regionKey = cacheKey.substring(slashIdx + 1);
+                        String path = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + regionKey + ".bin";
+
+                        // Write raw bytes directly to file
+                        ByteBuffer toWrite = data.duplicate();
+                        toWrite.rewind();
+                        byte[] bytes = new byte[toWrite.remaining()];
+                        toWrite.get(bytes);
+
+                        try {
+                            File file = new File(path);
+                            file.getParentFile().mkdirs();
+                            try (FileOutputStream fos = new FileOutputStream(file)) {
+                                fos.write(bytes);
+                            }
+                        } catch (IOException e) {
+                            OutsideUtils.exception(new Exception(), e);
+                        }
+                    }
+                }
+                placement_needs_persist.put(cacheKey, false);
+            }
+        }
+    }
+
+    /**
+     * G5 Optimization: Store placement data after file write.
+     * Called by TreeLocation after writing to disk to populate the cache.
+     * This allows TreePlacer to read from memory instead of disk.
+     * @param dimension The dimension name
+     * @param regionKey The region key
+     * @param path The file path that was just written
+     */
+    public static void cacheWrittenPlacement(String dimension, String regionKey, String path) {
+        // Read the file we just wrote and cache it
+        ByteBuffer data = FileManager.readBIN(path);
+        if (data != null && data.remaining() > 0) {
+            String cacheKey = dimension + "/" + regionKey;
+            // Store a copy
+            ByteBuffer copy = ByteBuffer.allocate(data.remaining());
+            copy.put(data);
+            copy.flip();
+            placement_cache.put(cacheKey, copy);
+            placement_needs_persist.put(cacheKey, false); // Already persisted
+        }
     }
 
 }

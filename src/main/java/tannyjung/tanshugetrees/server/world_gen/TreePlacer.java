@@ -40,8 +40,15 @@ public class TreePlacer {
     public static void start (LevelAccessor level_accessor, ServerLevel level_server, ChunkGenerator chunk_generator, String dimension, ChunkPos chunk_pos) {
 
         RandomSource random = RandomSource.create(level_server.getSeed() ^ (chunk_pos.x * 341873128712L + chunk_pos.z * 132897987541L));
-        String placePath = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5) + ".bin";
-        ByteBuffer get = FileManager.readBIN(placePath);
+        String regionKey = (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5);
+
+        // G5 Optimization: Check in-memory cache first before disk I/O
+        ByteBuffer get = Cache.getPlacement(dimension, regionKey);
+        if (get == null) {
+            // Cache miss - read from disk (happens after game restart or cache eviction)
+            String placePath = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + regionKey + ".bin";
+            get = FileManager.readBIN(placePath);
+        }
 
         while (get.remaining() > 0) {
 

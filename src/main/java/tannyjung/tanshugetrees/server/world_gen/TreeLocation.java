@@ -275,7 +275,10 @@ public class TreeLocation {
 
                     for (Map.Entry<String, List<String>> entry : cache_write_place.entrySet()) {
 
-                        FileManager.writeBIN(Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + entry.getKey() + ".bin", entry.getValue(), true);
+                        String placePath = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + entry.getKey() + ".bin";
+                        FileManager.writeBIN(placePath, entry.getValue(), true);
+                        // G5 Optimization: Cache the data we just wrote for TreePlacer to read without disk I/O
+                        Cache.cacheWrittenPlacement(dimension, entry.getKey(), placePath);
 
                     }
 
