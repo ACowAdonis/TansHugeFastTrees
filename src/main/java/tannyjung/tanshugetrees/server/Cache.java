@@ -175,14 +175,28 @@ public class Cache {
         if (tree_shape_part1.containsKey(id) == false) {
 
             String[] split = id.split("/");
-            ShortBuffer buffer = FileManager.readBIN(Handcode.path_config + "/custom_packs/" + split[0] + "/presets/" + split[1] + "/storage/" + split[2]).asShortBuffer();
+            String shapePath = Handcode.path_config + "/custom_packs/" + split[0] + "/presets/" + split[1] + "/storage/" + split[2];
+
+            ShortBuffer buffer = FileManager.readBIN(shapePath).asShortBuffer();
 
             if (buffer.remaining() > 0) {
 
                 short[] data = new short[buffer.remaining()];
                 buffer.get(data);
-                tree_shape_part1.put(id, Arrays.copyOfRange(data, 0, 12));
-                tree_shape_part2.put(id, Arrays.copyOfRange(data, 12, data.length));
+
+                // Auto-detect header size by finding first valid block type (starts with 1 for blocks)
+                // Beta tree pack may have extended header (16+ shorts instead of 12)
+                int headerSize = 12; // default
+                for (int i = 12; i < Math.min(data.length, 24); i++) {
+                    String typeStr = String.valueOf(data[i]);
+                    if (typeStr.startsWith("1") && typeStr.length() == 4) {
+                        headerSize = i;
+                        break;
+                    }
+                }
+
+                tree_shape_part1.put(id, Arrays.copyOfRange(data, 0, headerSize));
+                tree_shape_part2.put(id, Arrays.copyOfRange(data, headerSize, data.length));
 
             }
 

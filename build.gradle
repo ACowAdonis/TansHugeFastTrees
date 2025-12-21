@@ -6,7 +6,42 @@ plugins {
 
 
 group = mod_group_id
-version = mod_version
+
+// Build versioning: base version + git short hash for unique identification
+def getGitHash = { ->
+    def stdout = new ByteArrayOutputStream()
+    try {
+        exec {
+            commandLine 'git', 'rev-parse', '--short=7', 'HEAD'
+            standardOutput = stdout
+            errorOutput = new ByteArrayOutputStream()
+        }
+        return stdout.toString().trim()
+    } catch (Exception e) {
+        return 'unknown'
+    }
+}
+
+def getGitBranch = { ->
+    def stdout = new ByteArrayOutputStream()
+    try {
+        exec {
+            commandLine 'git', 'rev-parse', '--abbrev-ref', 'HEAD'
+            standardOutput = stdout
+            errorOutput = new ByteArrayOutputStream()
+        }
+        return stdout.toString().trim()
+    } catch (Exception e) {
+        return 'unknown'
+    }
+}
+
+def gitHash = getGitHash()
+def gitBranch = getGitBranch()
+
+// Version format: 1.6.0-ALPHA+abc1234 (with git hash)
+// Full build info available in jar manifest
+version = "${mod_version}+${gitHash}"
 
 base {
     archivesName = mod_id
@@ -90,7 +125,9 @@ tasks.named('jar', Jar).configure {
                     "Implementation-Title"    : project.name,
                     "Implementation-Version"  : project.jar.archiveVersion,
                     "Implementation-Vendor"   : mod_authors,
-                    "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ")])
+                    "Implementation-Timestamp": new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                    "Git-Branch"              : gitBranch,
+                    "Git-Commit"              : gitHash])
     }
 
     finalizedBy 'reobfJar'

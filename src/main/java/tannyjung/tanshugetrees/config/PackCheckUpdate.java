@@ -27,26 +27,36 @@ public class PackCheckUpdate {
 
 			} else {
 
-				String github = "";
-				String url = "";
-
-				if (ConfigMain.wip_version == false) {
-
-					github = "https://github.com/TannyJungMC/THT-tree_pack/" + Handcode.tanny_pack_version_name.toLowerCase();
-					url = "https://raw.githubusercontent.com/TannyJungMC/THT-tree_pack/" + Handcode.tanny_pack_version_name.toLowerCase() + "/version.txt";
-
-				} else {
-
-					github = "https://github.com/TannyJungMC/THT-tree_pack/tree/wip";
-					url = "https://raw.githubusercontent.com/TannyJungMC/THT-tree_pack/wip/version.txt";
-
+				// Skip online update check for WIP versions - no stable online version to check against
+				// Check actual pack version name, not config flag, since pack name may be set independently
+				if (Handcode.tanny_pack_version_name.equalsIgnoreCase("wip")) {
+					if (up_to_date_message == true) {
+						Utils.misc.sendChatMessage(level_server, "@a", "gray", "THT : WIP version - online update check skipped");
+					}
+					return;
 				}
+
+				String github = "https://github.com/TannyJungMC/THT-tree_pack/" + Handcode.tanny_pack_version_name.toLowerCase();
+				String url = "https://raw.githubusercontent.com/TannyJungMC/THT-tree_pack/" + Handcode.tanny_pack_version_name.toLowerCase() + "/version.txt";
 
 				File file = new File(Handcode.path_config + "/custom_packs/#TannyJung-Main-Pack/version.txt");
 
 				if (file.exists() == false) {
 
 					file = new File(Handcode.path_config + "/custom_packs/[INCOMPATIBLE] #TannyJung-Main-Pack/version.txt");
+
+				}
+
+				// Also check for info.txt (beta tree pack format)
+				if (file.exists() == false) {
+
+					file = new File(Handcode.path_config + "/custom_packs/#TannyJung-Main-Pack/info.txt");
+
+				}
+
+				if (file.exists() == false) {
+
+					file = new File(Handcode.path_config + "/custom_packs/[INCOMPATIBLE] #TannyJung-Main-Pack/info.txt");
 
 				}
 

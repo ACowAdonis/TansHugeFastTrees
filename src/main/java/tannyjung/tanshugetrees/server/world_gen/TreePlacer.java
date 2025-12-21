@@ -40,7 +40,8 @@ public class TreePlacer {
     public static void start (LevelAccessor level_accessor, ServerLevel level_server, ChunkGenerator chunk_generator, String dimension, ChunkPos chunk_pos) {
 
         RandomSource random = RandomSource.create(level_server.getSeed() ^ (chunk_pos.x * 341873128712L + chunk_pos.z * 132897987541L));
-        ByteBuffer get = FileManager.readBIN(Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5) + ".bin");
+        String placePath = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5) + ".bin";
+        ByteBuffer get = FileManager.readBIN(placePath);
 
         while (get.remaining() > 0) {
 
@@ -136,7 +137,6 @@ public class TreePlacer {
                     if (already_tested == false) {
 
                         {
-
                             String path_tree_settings = "";
 
                             // Scan World Gen File
@@ -157,6 +157,12 @@ public class TreePlacer {
                                             if (read_all.startsWith("path_tree_settings = ") == true) {
 
                                                 path_tree_settings = read_all.replace("path_tree_settings = ", "");
+                                                break;
+
+                                            } else if (read_all.startsWith("path_settings = ") == true) {
+
+                                                // Beta tree pack uses "path_settings" instead of "path_tree_settings"
+                                                path_tree_settings = read_all.replace("path_settings = ", "");
                                                 break;
 
                                             }
@@ -508,6 +514,12 @@ public class TreePlacer {
                         } else if (read_all.startsWith("path_tree_settings = ") == true) {
 
                             path_tree_settings = read_all.replace("path_tree_settings = ", "");
+                            break;
+
+                        } else if (read_all.startsWith("path_settings = ") == true) {
+
+                            // Beta tree pack uses "path_settings" instead of "path_tree_settings"
+                            path_tree_settings = read_all.replace("path_settings = ", "");
                             break;
 
                         }

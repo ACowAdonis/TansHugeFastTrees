@@ -553,6 +553,65 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 | **G2** | Keep all tree shapes in memory after first load | HIGH | Medium | TBD |
 | **G3** | Cache detailed_detection per chunk instead of per tree | MEDIUM | Low | TBD |
 | **G4** | Investigate memory-mapping region files for faster access | LOW | High | TBD |
+| **G5** | In-memory placement cache with lazy file persistence | HIGH | Medium | TBD |
+
+#### G5: In-Memory Placement Cache - Detailed Design
+
+**Problem:** TreeLocation writes tree placement data to files immediately, then TreePlacer reads from files. This creates unnecessary disk I/O during active chunk generation.
+
+**Proposed Solution:**
+
+1. **In-memory first:** TreeLocation stores placement data in `ConcurrentHashMap` instead of immediately writing to files
+2. **Memory-first reads:** TreePlacer checks memory cache before falling back to file reads
+3. **Lazy persistence:** Files written AFTER TreePlacer accesses the data (for persistence across game restarts)
+4. **File fallback:** Data from previous sessions (game restarts) still loads from files
+
+**Data flow:**
+
+```
+CURRENT FLOW (disk-heavy):
+TreeLocation → writes place.bin → disk → TreePlacer reads place.bin
+
+PROPOSED FLOW (memory-first):
+TreeLocation → ConcurrentHashMap → TreePlacer reads from memory
+                     │
+                     └──────────→ writes place.bin (lazy, after access)
+```
+
+**Implementation sketch:**
+
+```java
+// In Cache.java - add ConcurrentHashMap for placement data
+private static final ConcurrentHashMap<String, List<PlacementData>> placement_cache = new ConcurrentHashMap<>();
+private static final ConcurrentHashMap<String, Boolean> persisted_keys = new ConcurrentHashMap<>();
+
+// TreeLocation: Store in memory only
+Cache.storePlacement(regionKey, placementData);
+
+// TreePlacer: Check memory first
+List<PlacementData> data = Cache.getPlacement(regionKey);
+if (data != null) {
+    // Use cached data, mark for persistence
+    Cache.markForPersistence(regionKey);
+} else {
+    // Fall back to file (data from previous session)
+    ByteBuffer get = FileManager.readBIN(path);
+}
+
+// Background or end-of-tick: Persist marked data
+Cache.flushPendingPersistence();
+```
+
+**Memory estimate:**
+- ~14 tree placements per region × 50 bytes/placement = 700 bytes/region
+- 200 regions = 140 KB (negligible)
+- Even 1000 regions = 700 KB
+
+**Benefits:**
+- Eliminates file I/O during active chunk generation
+- Files only written when actually needed for persistence
+- Memory usage is minimal
+- Thread-safe with ConcurrentHashMap
 
 ### Category H: Modpack-Specific Optimizations
 

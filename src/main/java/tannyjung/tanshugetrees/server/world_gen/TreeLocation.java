@@ -208,6 +208,13 @@ public class TreeLocation {
                     int posX = region_posX * 32;
                     int posZ = region_posZ * 32;
 
+                    // DEBUG: Log enabled species count
+                    List<Cache.SpeciesWorldGenConfig> enabledSpecies = Cache.getEnabledSpecies();
+                    Handcode.logger.info("DEBUG: Found {} enabled species for world gen", enabledSpecies.size());
+                    if (enabledSpecies.isEmpty()) {
+                        Handcode.logger.warn("DEBUG: No enabled species found! Check config parsing.");
+                    }
+
                     for (int scanX = 0; scanX < 32; scanX++) {
 
                         for (int scanZ = 0; scanZ < 32; scanZ++) {
@@ -227,6 +234,21 @@ public class TreeLocation {
                 }
 
                 world_gen_overlay_animation = 0;
+
+                // DEBUG: Log how many trees were queued for writing
+                int totalTrees = 0;
+                for (List<String> trees : cache_write_tree_location.values()) {
+                    totalTrees += trees.size() / 3; // Each tree has 3 entries (type, x, z)
+                }
+                Handcode.logger.info("DEBUG: Region complete - {} trees queued for {} locations", totalTrees, cache_write_tree_location.size());
+                Handcode.logger.info("DEBUG: Test failures - Rarity: {}, Biome: {}, Distance: {}, Waterside: {}, Trees placed: {}",
+                    debug_rarity_fail, debug_biome_fail, debug_distance_fail, debug_waterside_fail, debug_trees_placed);
+                // Reset debug counters for next region
+                debug_rarity_fail = 0;
+                debug_biome_fail = 0;
+                debug_distance_fail = 0;
+                debug_waterside_fail = 0;
+                debug_trees_placed = 0;
                 Handcode.logger.info("Completed!");
 
                 // Write File
@@ -283,6 +305,13 @@ public class TreeLocation {
 
     }
 
+    // DEBUG counters for tracking why trees aren't generating
+    private static int debug_rarity_fail = 0;
+    private static int debug_biome_fail = 0;
+    private static int debug_distance_fail = 0;
+    private static int debug_waterside_fail = 0;
+    private static int debug_trees_placed = 0;
+
     // A1+B3 Optimization: Rewritten to use pre-parsed config
     // Eliminates ~7.7 million string comparisons per region
     // D1 Optimization: getBiome() called once per chunk, not per species
@@ -313,6 +342,7 @@ public class TreeLocation {
             // Rarity test
             double rarity = (species.rarity * 0.01) * ConfigMain.multiply_rarity;
             if (random.nextDouble() >= rarity) {
+                debug_rarity_fail++;
                 continue;
             }
 
@@ -320,12 +350,14 @@ public class TreeLocation {
             String biomeTestKey = chunk_biome_id + "|" + species.id;
             if (cache_biome_test.containsKey(biomeTestKey)) {
                 if (!cache_biome_test.get(biomeTestKey)) {
+                    debug_biome_fail++;
                     continue;
                 }
             } else {
                 boolean result = Utils.misc.testCustomBiome(chunk_biome, species.biome);
                 cache_biome_test.put(biomeTestKey, result);
                 if (!result) {
+                    debug_biome_fail++;
                     continue;
                 }
             }
@@ -334,6 +366,7 @@ public class TreeLocation {
             int min_distance = (int) Math.ceil(species.min_distance * ConfigMain.multiply_min_distance);
             if (min_distance > 0) {
                 if (!testDistance(dimension, species.id, center_posX, center_posZ, min_distance)) {
+                    debug_distance_fail++;
                     continue;
                 }
             }
@@ -348,12 +381,14 @@ public class TreeLocation {
             // Waterside Detection
             double waterside_chance = species.waterside_chance * ConfigMain.multiply_waterside_chance;
             if (!testWaterSide(level_accessor, random, center_posX, center_posZ, waterside_chance)) {
-                return;
+                debug_waterside_fail++;
+                continue;
             }
 
             // Apply config multipliers for dead tree chance
             double dead_tree_chance = species.dead_tree_chance * ConfigMain.multiply_dead_tree_chance;
 
+            debug_trees_placed++;
             writeData(level_accessor, random, center_posX, center_posZ, species.id, species.ground_block,
                       species.start_height_offset, species.rotation, species.mirrored, dead_tree_chance, species.dead_tree_level);
 

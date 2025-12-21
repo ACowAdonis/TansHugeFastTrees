@@ -44,17 +44,8 @@ public class CustomPackIncompatible {
 
                 if (pack.getName().startsWith("[INCOMPATIBLE] ") == false) {
 
-                    pass = true;
-
-                    if (testVersion(level_accessor, pack + "/version.txt") == false) {
-
-                        pass = false;
-
-                    } else if (testDependencies(level_accessor, pack + "/dependencies.txt") == false) {
-
-                        pass = false;
-
-                    }
+                    // Use info.txt format (matches beta tree pack structure)
+                    pass = testInfo(level_accessor, pack + "/info.txt");
 
                     rename(pack.getPath(), pass);
 
@@ -160,7 +151,11 @@ public class CustomPackIncompatible {
 
     }
 
-    private static boolean testVersion (LevelAccessor level_accessor, String path) {
+    /**
+     * Tests pack compatibility using info.txt format (matches beta tree pack structure).
+     * Reads data_structure_version, required_packs, and required_mods from a single info.txt file.
+     */
+    private static boolean testInfo (LevelAccessor level_accessor, String path) {
 
         String error = "";
         File file = new File(path);
@@ -169,8 +164,10 @@ public class CustomPackIncompatible {
         if (file.exists() == true && file.isDirectory() == false) {
 
             int data_structure_version = 0;
+            String required_packs = "none";
+            String required_mods = "none";
 
-            // Read File
+            // Read info.txt - contains version and dependencies in one file
             {
 
                 try { BufferedReader buffered_reader = new BufferedReader(new FileReader(file), 65536); String read_all = ""; while ((read_all = buffered_reader.readLine()) != null) {
@@ -180,7 +177,14 @@ public class CustomPackIncompatible {
                         if (read_all.startsWith("data_structure_version = ")) {
 
                             data_structure_version = Integer.parseInt(read_all.replace("data_structure_version = ", ""));
-                            break;
+
+                        } else if (read_all.startsWith("required_packs = ")) {
+
+                            required_packs = read_all.replace("required_packs = ", "");
+
+                        } else if (read_all.startsWith("required_mods = ")) {
+
+                            required_mods = read_all.replace("required_mods = ", "");
 
                         }
 
@@ -190,103 +194,48 @@ public class CustomPackIncompatible {
 
             }
 
+            // Test data structure version
             if (data_structure_version != Handcode.DATA_STRUCTURE_VERSION) {
 
                 error = "Detected incompatible pack. Caused by unsupported mod version. [ " + pack_name + " ]";
 
             }
 
-        } else {
+            // Test required packs
+            if (error.equals("") && required_packs.equals("none") == false) {
 
-            error = "Detected incompatible pack. Caused by no version file. [ " + pack_name + " ]";
+                for (String test : required_packs.split(", ")) {
 
-        }
+                    if (new File(Handcode.path_config + "/custom_packs/" + test).exists() == false) {
 
-        if (error.equals("") == false) {
-
-            if (level_accessor instanceof ServerLevel level_server) {
-
-                Utils.misc.sendChatMessage(level_server, "@a", "red", "THT : " + error);
-
-            } else {
-
-                Handcode.logger.error(error);
-
-            }
-
-            return false;
-
-        }
-
-        return true;
-
-    }
-
-    private static boolean testDependencies (LevelAccessor level_accessor, String path) {
-
-        String error = "";
-        File file = new File(path);
-        String name_pack = file.getParentFile().getName();
-
-        if (file.exists() == true && file.isDirectory() == false) {
-
-            String get = "";
-
-            for (String read_all : FileManager.readTXT(file.getPath())) {
-
-                {
-
-                    if (read_all.startsWith("required_packs = ")) {
-
-                        {
-
-                            get = read_all.replace("required_packs = ", "");
-
-                            if (get.equals("none") == false) {
-
-                                for (String test : get.split(", ")) {
-
-                                    if (new File(Handcode.path_config + "/custom_packs/" + test).exists() == false) {
-
-                                        error = "Detected incompatible pack. Caused by required pack not found. [ " + name_pack + " > " + test + " ]";
-                                        break;
-
-                                    }
-
-                                }
-
-                            }
-
-                        }
-
-                    } else if (read_all.startsWith("required_mods = ")) {
-
-                        {
-
-                            get = read_all.replace("required_mods = ", "");
-
-                            if (get.equals("none") == false) {
-
-                                for (String test : get.split(", ")) {
-
-                                    if (Utils.misc.isModLoaded(test) == false) {
-
-                                        error = "Detected incompatible pack. Caused by required mod not found. [ " + name_pack + " > " + test + " ]";
-                                        break;
-
-                                    }
-
-                                }
-
-                            }
-
-                        }
+                        error = "Detected incompatible pack. Caused by required pack not found. [ " + pack_name + " > " + test + " ]";
+                        break;
 
                     }
 
                 }
 
             }
+
+            // Test required mods
+            if (error.equals("") && required_mods.equals("none") == false) {
+
+                for (String test : required_mods.split(", ")) {
+
+                    if (Utils.misc.isModLoaded(test) == false) {
+
+                        error = "Detected incompatible pack. Caused by required mod not found. [ " + pack_name + " > " + test + " ]";
+                        break;
+
+                    }
+
+                }
+
+            }
+
+        } else {
+
+            error = "Detected incompatible pack. Caused by no info file. [ " + pack_name + " ]";
 
         }
 
@@ -382,6 +331,11 @@ public class CustomPackIncompatible {
                     } else if (read_all.startsWith("path_tree_settings = ")) {
 
                         path_tree_settings = read_all.replace("path_tree_settings = ", "");
+
+                    } else if (read_all.startsWith("path_settings = ")) {
+
+                        // Beta tree pack uses "path_settings" instead of "path_tree_settings"
+                        path_tree_settings = read_all.replace("path_settings = ", "");
 
                     } else {
 
