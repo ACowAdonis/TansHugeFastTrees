@@ -33,11 +33,14 @@ public class Cache {
         public final String start_height_offset;
         public final String rotation;
         public final String mirrored;
+        // B2 Optimization: Pre-parsed path_storage to eliminate per-tree string parsing
+        public final String path_storage;
 
         public SpeciesWorldGenConfig(String id, boolean world_gen, String biome, String ground_block,
                                      double rarity, int min_distance, String group_size,
                                      double waterside_chance, double dead_tree_chance, String dead_tree_level,
-                                     String start_height_offset, String rotation, String mirrored) {
+                                     String start_height_offset, String rotation, String mirrored,
+                                     String path_storage) {
             this.id = id;
             this.world_gen = world_gen;
             this.biome = biome;
@@ -56,6 +59,7 @@ public class Cache {
             this.start_height_offset = start_height_offset;
             this.rotation = rotation;
             this.mirrored = mirrored;
+            this.path_storage = path_storage;
         }
     }
 
@@ -457,10 +461,19 @@ public class Cache {
                                 case "mirrored" -> {
                                     mirrored = value;
                                     // mirrored is the last property - create the config object
+                                    // B2 Optimization: Pre-parse path_storage from world_gen settings file
+                                    String path_storage = "";
+                                    String[] worldGenSettings = getWorldGenSettings(id);
+                                    for (String setting : worldGenSettings) {
+                                        if (setting.startsWith("path_storage = ")) {
+                                            path_storage = setting.substring(15); // "path_storage = ".length()
+                                            break;
+                                        }
+                                    }
                                     cached_world_gen_config.add(new SpeciesWorldGenConfig(
                                         id, world_gen, biome, ground_block, rarity, min_distance,
                                         group_size, waterside_chance, dead_tree_chance, dead_tree_level,
-                                        start_height_offset, rotation, mirrored
+                                        start_height_offset, rotation, mirrored, path_storage
                                     ));
                                 }
                             }

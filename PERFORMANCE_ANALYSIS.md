@@ -531,7 +531,7 @@ Separate "decision making" (expensive) from "block placement" (must be fast).
 | Task ID | Task | Priority | Complexity | Status |
 |---------|------|----------|------------|--------|
 | **B1** | Replace string-based biome cache keys with integer/long keys | HIGH | Low | ✅ DONE |
-| **B2** | Eliminate all string concatenation in hot paths | HIGH | Medium | PARTIAL (path_storage needs pre-parse) |
+| **B2** | Eliminate all string concatenation in hot paths | HIGH | Medium | ✅ DONE (path_storage pre-parsed) |
 | **B3** | Pre-parse all config values into typed fields (no runtime parsing) | HIGH | Medium | ✅ DONE (0081072) |
 | **B4** | Replace String species IDs with integer IDs where possible | MEDIUM | Medium | OPEN |
 

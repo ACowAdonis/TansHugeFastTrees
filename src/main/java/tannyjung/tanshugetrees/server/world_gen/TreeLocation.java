@@ -419,8 +419,9 @@ public class TreeLocation {
             double dead_tree_chance = species.dead_tree_chance * ConfigMain.multiply_dead_tree_chance;
 
             debug_trees_placed++;
-            writeData(level_accessor, random, center_posX, center_posZ, species.id, species.ground_block,
-                      species.start_height_offset, species.rotation, species.mirrored, dead_tree_chance, species.dead_tree_level);
+            writeData(level_accessor, random, center_posX, center_posZ, species.id, species.path_storage,
+                      species.ground_block, species.start_height_offset, species.rotation, species.mirrored,
+                      dead_tree_chance, species.dead_tree_level);
 
             // Group Spawning
             if (group_size_get > 1) {
@@ -442,8 +443,9 @@ public class TreeLocation {
                         }
                     }
 
-                    writeData(level_accessor, random, center_posX, center_posZ, species.id, species.ground_block,
-                              species.start_height_offset, species.rotation, species.mirrored, dead_tree_chance, species.dead_tree_level);
+                    writeData(level_accessor, random, center_posX, center_posZ, species.id, species.path_storage,
+                              species.ground_block, species.start_height_offset, species.rotation, species.mirrored,
+                              dead_tree_chance, species.dead_tree_level);
                 }
             }
 
@@ -513,29 +515,8 @@ public class TreeLocation {
 
     }
 
-    private static void writeData (LevelAccessor level_accessor, RandomSource random, int center_posX, int center_posZ, String id, String ground_block, String start_height_offset, String rotation, String mirrored, double dead_tree_chance, String dead_tree_level) {
-
-        String path_storage = "";
-
-        // Scan World Gen File
-        {
-            
-            for (String read_all : Cache.getWorldGenSettings(id)) {
-                
-                {
-
-                    if (read_all.startsWith("path_storage = ") == true) {
-
-                        path_storage = read_all.replace("path_storage = ", "");
-                        break;
-
-                    }
-
-                }
-
-            }
-
-        }
+    // B2 Optimization: path_storage is now pre-parsed in SpeciesWorldGenConfig
+    private static void writeData (LevelAccessor level_accessor, RandomSource random, int center_posX, int center_posZ, String id, String path_storage, String ground_block, String start_height_offset, String rotation, String mirrored, double dead_tree_chance, String dead_tree_level) {
 
         // A2 Optimization: Use cached storage file list instead of File.listFiles()
         String chosenFileName = null;
