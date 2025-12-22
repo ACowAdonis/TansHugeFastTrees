@@ -23,6 +23,8 @@ import net.minecraft.client.Minecraft;
 public class OVERLAYWorldGenOverlay {
 	@SubscribeEvent(priority = EventPriority.NORMAL)
 	public static void eventHandler(RenderGuiEvent.Pre event) {
+		// Overlay disabled - generation now fast enough that display is more distracting than helpful
+		/*
 		int w = event.getWindow().getGuiScaledWidth();
 		int h = event.getWindow().getGuiScaledHeight();
 		Level world = null;
@@ -51,5 +53,6 @@ public class OVERLAYWorldGenOverlay {
 
 						OVERLAYWorldGenDetailsTreeProcedure.execute(), 6, 44, -11908534, false);
 		}
+		*/
 	}
 }

@@ -170,9 +170,10 @@ public class TreeLocation {
                 long perf_write = 0;
 
                 Handcode.logger.info("Generating tree locations for a new region ({} -> {}/{})", dimension.replace("-", ":"), region_posX, region_posZ);
-                world_gen_overlay_animation = 4;
-                world_gen_overlay_bar = 0;
-                scanning_overlay_loop();
+                // Overlay animation disabled - no longer displayed
+                // world_gen_overlay_animation = 4;
+                // world_gen_overlay_bar = 0;
+                // scanning_overlay_loop();
 
                 // Optimized: Pre-load neighboring region files and populate spatial grid
                 long perf_neighbor_start = System.nanoTime();
@@ -230,7 +231,7 @@ public class TreeLocation {
 
                         for (int scanZ = 0; scanZ < 32; scanZ++) {
 
-                            world_gen_overlay_bar = world_gen_overlay_bar + 1;
+                            // world_gen_overlay_bar = world_gen_overlay_bar + 1;
 
                             if (random.nextDouble() < ConfigMain.region_scan_chance) {
 
@@ -245,7 +246,7 @@ public class TreeLocation {
                 }
                 perf_scan = System.nanoTime() - perf_scan_start;
 
-                world_gen_overlay_animation = 0;
+                // world_gen_overlay_animation = 0;
 
                 // DEBUG: Log how many trees were queued for writing
                 int totalTrees = 0;
@@ -311,6 +312,8 @@ public class TreeLocation {
 
     }
 
+    // Overlay animation loop disabled - overlay no longer displayed
+    /*
     private static void scanning_overlay_loop () {
 
         // CRITICAL FIX: Check animation state BEFORE scheduling next iteration
@@ -333,6 +336,7 @@ public class TreeLocation {
         }
 
     }
+    */
 
     // DEBUG counters for tracking why trees aren't generating
     private static int debug_rarity_fail = 0;
@@ -347,7 +351,7 @@ public class TreeLocation {
     // Reduces from 35,840 calls to 1,024 calls per region (35× reduction)
     private static void getData (LevelAccessor level_accessor, String dimension, RandomSource random, int chunk_posX, int chunk_posZ, String[] config_world_gen) {
 
-        world_gen_overlay_details_tree = "No Matching";
+        // world_gen_overlay_details_tree = "No Matching";
 
         // D1 Optimization: Sample biome ONCE per chunk (at chunk center)
         // All species use this biome for matching, but each gets its own random placement position
@@ -355,7 +359,7 @@ public class TreeLocation {
         int biome_sample_posZ = (chunk_posZ * 16) + 8;
         Holder<Biome> chunk_biome = level_accessor.getBiome(new BlockPos(biome_sample_posX, level_accessor.getMaxBuildHeight(), biome_sample_posZ));
         String chunk_biome_id = Utils.biome.toID(chunk_biome);
-        world_gen_overlay_details_biome = chunk_biome_id;
+        // world_gen_overlay_details_biome = chunk_biome_id;
 
         // Get pre-parsed and pre-filtered species configurations (parsed once, cached)
         // B1 Optimization: Only iterate over enabled species (world_gen=true)
@@ -366,7 +370,7 @@ public class TreeLocation {
             // Generate random position within chunk for this species (placement position)
             int center_posX = (chunk_posX * 16) + random.nextInt(0, 16);
             int center_posZ = (chunk_posZ * 16) + random.nextInt(0, 16);
-            world_gen_overlay_details_tree = species.id;
+            // world_gen_overlay_details_tree = species.id;
 
             // Rarity test
             double rarity = (species.rarity * 0.01) * ConfigMain.multiply_rarity;

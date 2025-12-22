@@ -25,13 +25,8 @@ public class Overlay {
 
     @SubscribeEvent(priority = EventPriority.NORMAL)
     public static void eventMenu (ScreenEvent.Render.Post event) {
-
-        // Removed: Internet-loaded image overlay
-        // OverlayMaker.Manu.image(event, "internet", "aaa" , "https://yt3.googleusercontent.com/lFP2bfvXbKYNoqlLkF6Gz7tN3uvjEEzNNMy8oYkBTlz6HtGDn-xEGoUBGuo_lEZbYVHTAp6a=s900-c-k-c0x00ffffff-no-rj", 10, 50, 100, 100, 1, 1, 1);
-
-
-
-
+        // Overlay disabled - generation now fast enough that display is more distracting than helpful
+        /*
 
 
 
@@ -50,12 +45,13 @@ public class Overlay {
             }
 
         }
-
+        */
     }
 
     @SubscribeEvent(priority = EventPriority.NORMAL)
     public static void eventInGame (RenderGuiEvent.Post event) {
-
+        // Overlay disabled - generation now fast enough that display is more distracting than helpful
+        /*
         if (TreeLocation.world_gen_overlay_animation != 0) {
 
             OverlayMaker.InGame.image(event, "tanshugetrees:textures/screens/overlay_region_gen.png", 6, 8, 64, 16, 4, 1, (int) OVERLAYWorldGenAnimationProcedure.execute());
@@ -64,7 +60,7 @@ public class Overlay {
             OverlayMaker.InGame.text(event, "Tree : " + TreeLocation.world_gen_overlay_details_tree, 6, 44, 0.5f, 1.0f, -11908534, false);
 
         }
-
+        */
     }
 
 }
