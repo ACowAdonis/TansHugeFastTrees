@@ -27,7 +27,7 @@ public class CustomPackFileCount {
             countShape();
             countVariation();
 
-            file_size = Double.parseDouble(String.format("%.2f", file_size / (1024 * 1024)));
+            file_size = Math.round((file_size / (1024 * 1024)) * 100.0) / 100.0;
 
             Utils.command.run(level_server, 0, 0, 0, "tellraw @a [{\"text\":\"There are now \",\"color\":\"white\"},{\"text\":\"" + count_variation + "\",\"color\":\"yellow\"},{\"text\":\" variation of species from all installed packs, and \",\"color\":\"white\"},{\"text\":\"" + count_shape + "\",\"color\":\"yellow\"},{\"text\":\" different shapes in total! Used about \",\"color\":\"white\"},{\"text\":\"" + file_size + " MB\",\"color\":\"yellow\"},{\"text\":\" of the space.\",\"color\":\"white\"}]");
 

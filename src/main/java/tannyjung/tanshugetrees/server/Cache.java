@@ -123,7 +123,7 @@ public class Cache {
 
         }
 
-        return Double.parseDouble(String.format("%.2f", size / (1024 * 1024)));
+        return Math.round((size / (1024 * 1024)) * 100.0) / 100.0;
 
     }
 

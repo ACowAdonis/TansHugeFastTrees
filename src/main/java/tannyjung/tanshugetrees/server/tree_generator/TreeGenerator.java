@@ -492,10 +492,10 @@ public class TreeGenerator {
 
                                 }
 
-                                vertical = Double.parseDouble(String.format("%.2f", Mth.nextDouble(RandomSource.create(), -(vertical), vertical)));
-                                horizontal = Double.parseDouble(String.format("%.2f", Mth.nextDouble(RandomSource.create(), -(horizontal), horizontal)));
-                                height = Double.parseDouble(String.format("%.2f", height));
-                                forward = Double.parseDouble(String.format("%.2f", forward));
+                                vertical = Math.round(Mth.nextDouble(RandomSource.create(), -(vertical), vertical) * 100.0) / 100.0;
+                                horizontal = Math.round(Mth.nextDouble(RandomSource.create(), -(horizontal), horizontal) * 100.0) / 100.0;
+                                height = Math.round(height * 100.0) / 100.0;
+                                forward = Math.round(forward * 100.0) / 100.0;
                                 positioned = "positioned ^" + horizontal + " ^" + vertical + " ^" + forward + " positioned ~ ~" + height + " ~";
 
                             }
