@@ -1,18 +1,58 @@
-This is the backup of this mod. To open this, use IntelliJ (Recommended), or use MCreator. I do both sides, one for complex systems, other one for general and hard things such as GUI and overlay.
+This is a forked version of Tan's Huge Trees from https://github.com/TannyJungMC/TansHugeTrees
 
-# How To Use
+Made with Tan's permission and shared (hopefully) with him.
 
-- To run client or server. Go to "Gradle" tab at right side, select `Tasks > forgegradle runs > runClient or runServer`.
-- To export the mod to JAR format. Go to "Gradle" tab at right side, select `Tasks > build > build`. The exported file will be in `Project Folder > build > libs`.
+All credit should go to Tan for creating such a great mod :)
+
+# Goal of this fork
+
+- This fork is an attempt to dramatically improve world generation performance, and that's pretty much it.  I wanted to see how far we could push things while still leaving it playable in practice and still with minimal bugs.
+
+In our heavily modded environment, we measured in our benchmarks a generation time of 1 to 7 seconds of calculations per region.  This fork attempts to reduce that to ~300ms per region - a roughly 10x improvement in theoretical throughput.
+
+# Key Optimizations
+
+## Config Parsing (A1/B3)
+- Pre-parse species configuration at startup instead of per-tree
+- Eliminates ~7.7 million string comparisons per region
+
+## Biome Caching (B1/D1)
+- Sample biome once per chunk instead of once per species check
+- Use long keys instead of string concatenation for cache lookups
+- Reduces biome lookups from 35,840 to 1,024 per region (35× reduction)
+
+## In-Memory Placement Cache (G5)
+- Cache placement data in memory after generation
+- Eliminates disk I/O for TreePlacer reading recently-written data
+- Thread-safe with ConcurrentHashMap for C2ME compatibility
+
+## Pre-Parsed Path Storage (B2)
+- Parse species path_storage once during config load
+- Eliminates repeated string splitting during tree placement
+
+## Locale-Safe Number Formatting (which i'm pretty sure Tan already fixed in his later versions)
+- Fixed crash on systems with European locale (comma decimal separator)
+- Replaced Double.parseDouble(String.format()) pattern with arithmetic rounding
+
+# Additional Changes
+- Disabled generation overlay (no longer needed with fast generation)
+- Disabled automatic update checks (locked to compatible tree pack version)
+- Renamed to "Tan's Huge Fast Trees" for identification
+
+# Compatibility
+- Minecraft 1.20.1
+- Forge 47.x
+- C2ME compatible (thread-safe caching)
+- Uses same mod_id as original for world/config compatibility
+
+# Credits
+TannyJung — Original Tan's Huge Trees mod
 
 # Terms of Use
 
-- You can use my mods in your modpacks, videos, and custom maps. Just put credit to the mod page or my name. You can also support me by donate, as appropriate.
-- Suggestions and requests is not open for all my mods, except contents in the custom packs that's half open.
-- Source code is open publicly. You can read, study, and edit my codes privately. But do not suggest about your edit, and publish your own edit.
+- This version of Tan's Huge Trees exists as a proof-of-concept in the Au Naturel modpack with Tan's permission and for Tan to decide if he wants to on-board any of the changes into his mainline.
 
-# From Creator
+- I am not the original author of Tan's Huge Trees, nor am i responsible for any licensing, permissions or restrictions.  Do not contact Tan for help with this version of the mod or any issues associated with its code.  
 
-Thank you all for playing my mods! I'm happy to see people enjoy my hobby. I maybe not a great modder, who always open for requests and suggestions. I made mods for my feeling first, just like doing an artwork. What I want to do, my ideas, and for my imaginary world. Using methods I like. Hope you understand and respect that. (╯ ‿╰ ' ) If you want to support me, you can become my Patreon membership, and buying my artworks. Anyway, you can easily support me by playing my mods, and follow my artworks on Twitter (X).
+The official version of Tan's Huge Trees should still be accessed at https://modrinth.com/mod/tans-huge-trees or https://www.curseforge.com/minecraft/mc-mods/tans-huge-trees
 
-Will I do Fabric port of my mods? Unfortunately, I'm not fan of Fabric. I don't want to spend my lifetime to do that, when I don't even have fun to do it. Also please understand that I have 3 mods, which all is very complex and detailed. Fabric port will be a lot hard work for me, like living in hell. There maybe someone in the future, who interested in helping port it. But that I have to consider that first, and they must agree with my decision at above.
