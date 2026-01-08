@@ -97,11 +97,6 @@ public class Cache {
             }
         };
 
-    // P1.1 Analytics: Track cache performance
-    private static long detection_cache_hits = 0;
-    private static long detection_cache_misses = 0;
-    private static long detection_lookups_total = 0;
-    private static long detection_lookups_found = 0;
 
     /**
      * P2.1 Optimization: Pre-parsed tree placement data for a single tree.
@@ -152,10 +147,6 @@ public class Cache {
             }
         };
 
-    // P2.1 Analytics
-    private static long placement_index_hits = 0;
-    private static long placement_index_misses = 0;
-
     /**
      * P1.3 Optimization: Cache structure detection results per chunk.
      * Stores whether a chunk contains surface structures to avoid repeated getAllReferences() calls.
@@ -171,10 +162,6 @@ public class Cache {
             }
         };
 
-    // P1.3 Analytics
-    private static long structure_cache_hits = 0;
-    private static long structure_cache_misses = 0;
-
     /**
      * P3.1 Optimization: Thread-local heightmap cache for chunk processing.
      * Caches getBaseHeight results within a single chunk's tree processing.
@@ -183,10 +170,6 @@ public class Cache {
      */
     private static final ThreadLocal<Map<String, Integer>> heightmap_cache =
         ThreadLocal.withInitial(HashMap::new);
-
-    // P3.1 Analytics
-    private static long heightmap_cache_hits = 0;
-    private static long heightmap_cache_misses = 0;
 
     private static final Map<String, String> dictionary = new HashMap<>();
     private static final Map<String, short[]> tree_shape_part1 = new HashMap<>();
@@ -656,13 +639,11 @@ public class Cache {
         synchronized (detailed_detection_cache) {
             Map<Long, DetectionResult> cached = detailed_detection_cache.get(cacheKey);
             if (cached != null) {
-                detection_cache_hits++;
                 return cached;
             }
         }
 
         // Cache miss - load from disk and index
-        detection_cache_misses++;
         String path = Handcode.path_world_data + "/world_gen/detailed_detection/" + dimension + "/" + regionX + "," + regionZ + ".bin";
         Map<Long, DetectionResult> indexed = loadAndIndexDetection(path);
 
@@ -735,45 +716,6 @@ public class Cache {
         }
     }
 
-    /**
-     * P1.1 Analytics: Record a detection lookup result.
-     * Call after looking up a position in the detection cache.
-     * @param found true if the position was found in the cache
-     */
-    public static void recordDetectionLookup(boolean found) {
-        detection_lookups_total++;
-        if (found) {
-            detection_lookups_found++;
-        }
-    }
-
-    /**
-     * P1.1 Analytics: Get detection cache statistics.
-     * @return String with cache hit rate, lookup stats, and current cache size
-     */
-    public static String getDetectionCacheStats() {
-        long totalRegionAccesses = detection_cache_hits + detection_cache_misses;
-        double hitRate = totalRegionAccesses > 0 ? (100.0 * detection_cache_hits / totalRegionAccesses) : 0;
-        double lookupFoundRate = detection_lookups_total > 0 ? (100.0 * detection_lookups_found / detection_lookups_total) : 0;
-
-        return String.format(
-            "DetectionCache: regions=%d/%d, hits=%d, misses=%d, hitRate=%.1f%%, lookups=%d, found=%d (%.1f%%)",
-            detailed_detection_cache.size(), DETECTION_CACHE_SIZE,
-            detection_cache_hits, detection_cache_misses, hitRate,
-            detection_lookups_total, detection_lookups_found, lookupFoundRate
-        );
-    }
-
-    /**
-     * P1.1 Analytics: Reset detection cache statistics.
-     */
-    public static void resetDetectionCacheStats() {
-        detection_cache_hits = 0;
-        detection_cache_misses = 0;
-        detection_lookups_total = 0;
-        detection_lookups_found = 0;
-    }
-
     // ==================== P2.1 Optimization: Indexed Placement Cache ====================
 
     /**
@@ -792,14 +734,12 @@ public class Cache {
         synchronized (placement_index_cache) {
             Map<Long, List<TreePlacementData>> regionIndex = placement_index_cache.get(cacheKey);
             if (regionIndex != null) {
-                placement_index_hits++;
                 long chunkKey = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
                 return regionIndex.getOrDefault(chunkKey, Collections.emptyList());
             }
         }
 
         // Cache miss - need to build index
-        placement_index_misses++;
         Map<Long, List<TreePlacementData>> regionIndex = buildPlacementIndex(dimension, regionKey);
 
         // Store in cache
@@ -886,27 +826,6 @@ public class Cache {
         }
     }
 
-    /**
-     * P2.1 Analytics: Get placement index cache statistics.
-     */
-    public static String getPlacementIndexStats() {
-        long total = placement_index_hits + placement_index_misses;
-        double hitRate = total > 0 ? (100.0 * placement_index_hits / total) : 0;
-        return String.format(
-            "PlacementIndex: regions=%d/%d, hits=%d, misses=%d, hitRate=%.1f%%",
-            placement_index_cache.size(), PLACEMENT_INDEX_CACHE_SIZE,
-            placement_index_hits, placement_index_misses, hitRate
-        );
-    }
-
-    /**
-     * P2.1 Analytics: Reset placement index statistics.
-     */
-    public static void resetPlacementIndexStats() {
-        placement_index_hits = 0;
-        placement_index_misses = 0;
-    }
-
     // ==================== P1.3 Optimization: Structure Detection Cache ====================
 
     /**
@@ -919,11 +838,7 @@ public class Cache {
     public static Boolean getStructureDetection(String dimension, int chunkX, int chunkZ) {
         String cacheKey = dimension + "/" + chunkX + "," + chunkZ;
         synchronized (structure_detection_cache) {
-            Boolean cached = structure_detection_cache.get(cacheKey);
-            if (cached != null) {
-                structure_cache_hits++;
-            }
-            return cached;
+            return structure_detection_cache.get(cacheKey);
         }
     }
 
@@ -937,32 +852,8 @@ public class Cache {
     public static void cacheStructureDetection(String dimension, int chunkX, int chunkZ, boolean hasSurfaceStructures) {
         String cacheKey = dimension + "/" + chunkX + "," + chunkZ;
         synchronized (structure_detection_cache) {
-            if (!structure_detection_cache.containsKey(cacheKey)) {
-                structure_cache_misses++;
-            }
             structure_detection_cache.put(cacheKey, hasSurfaceStructures);
         }
-    }
-
-    /**
-     * P1.3 Analytics: Get structure detection cache statistics.
-     */
-    public static String getStructureCacheStats() {
-        long total = structure_cache_hits + structure_cache_misses;
-        double hitRate = total > 0 ? (100.0 * structure_cache_hits / total) : 0;
-        return String.format(
-            "StructureCache: chunks=%d/%d, hits=%d, misses=%d, hitRate=%.1f%%",
-            structure_detection_cache.size(), STRUCTURE_CACHE_SIZE,
-            structure_cache_hits, structure_cache_misses, hitRate
-        );
-    }
-
-    /**
-     * P1.3 Analytics: Reset structure detection cache statistics.
-     */
-    public static void resetStructureCacheStats() {
-        structure_cache_hits = 0;
-        structure_cache_misses = 0;
     }
 
     // ==================== P3.1 Optimization: Heightmap Cache ====================
@@ -984,11 +875,7 @@ public class Cache {
      */
     public static Integer getHeightmapCached(int posX, int posZ, String heightmapType) {
         String key = posX + "," + posZ + "," + heightmapType;
-        Integer cached = heightmap_cache.get().get(key);
-        if (cached != null) {
-            heightmap_cache_hits++;
-        }
-        return cached;
+        return heightmap_cache.get().get(key);
     }
 
     /**
@@ -1000,30 +887,7 @@ public class Cache {
      */
     public static void cacheHeightmap(int posX, int posZ, String heightmapType, int height) {
         String key = posX + "," + posZ + "," + heightmapType;
-        if (!heightmap_cache.get().containsKey(key)) {
-            heightmap_cache_misses++;
-        }
         heightmap_cache.get().put(key, height);
-    }
-
-    /**
-     * P3.1 Analytics: Get heightmap cache statistics.
-     */
-    public static String getHeightmapCacheStats() {
-        long total = heightmap_cache_hits + heightmap_cache_misses;
-        double hitRate = total > 0 ? (100.0 * heightmap_cache_hits / total) : 0;
-        return String.format(
-            "HeightmapCache: hits=%d, misses=%d, hitRate=%.1f%%",
-            heightmap_cache_hits, heightmap_cache_misses, hitRate
-        );
-    }
-
-    /**
-     * P3.1 Analytics: Reset heightmap cache statistics.
-     */
-    public static void resetHeightmapCacheStats() {
-        heightmap_cache_hits = 0;
-        heightmap_cache_misses = 0;
     }
 
     // ==================== G5 Optimization: In-Memory Placement Cache ====================

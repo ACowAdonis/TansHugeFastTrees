@@ -106,9 +106,6 @@ public class TreePlacer {
                         long posKey = Cache.makeDetectionKey(center_posX, center_posZ);
                         Cache.DetectionResult result = detectionCache.get(posKey);
 
-                        // P1.1 Analytics: Track lookup results
-                        Cache.recordDetectionLookup(result != null);
-
                         if (result != null) {
                             already_tested = true;
                             pass = result.pass;
