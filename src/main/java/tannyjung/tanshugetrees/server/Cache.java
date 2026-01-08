@@ -103,6 +103,78 @@ public class Cache {
     private static long detection_lookups_total = 0;
     private static long detection_lookups_found = 0;
 
+    /**
+     * P2.1 Optimization: Pre-parsed tree placement data for a single tree.
+     * Allows indexing by chunk position for O(1) lookup.
+     */
+    public static class TreePlacementData {
+        public final int from_chunkX, from_chunkZ, to_chunkX, to_chunkZ;
+        public final String id, chosen;
+        public final int center_posX, center_posZ;
+        public final int rotation;
+        public final boolean mirrored;
+        public final int start_height_offset, up_sizeY;
+        public final String ground_block;
+        public final int dead_tree_level;
+
+        public TreePlacementData(int from_chunkX, int from_chunkZ, int to_chunkX, int to_chunkZ,
+                                 String id, String chosen, int center_posX, int center_posZ,
+                                 int rotation, boolean mirrored, int start_height_offset, int up_sizeY,
+                                 String ground_block, int dead_tree_level) {
+            this.from_chunkX = from_chunkX;
+            this.from_chunkZ = from_chunkZ;
+            this.to_chunkX = to_chunkX;
+            this.to_chunkZ = to_chunkZ;
+            this.id = id;
+            this.chosen = chosen;
+            this.center_posX = center_posX;
+            this.center_posZ = center_posZ;
+            this.rotation = rotation;
+            this.mirrored = mirrored;
+            this.start_height_offset = start_height_offset;
+            this.up_sizeY = up_sizeY;
+            this.ground_block = ground_block;
+            this.dead_tree_level = dead_tree_level;
+        }
+    }
+
+    /**
+     * P2.1 Optimization: Indexed placement data per region.
+     * Maps chunk coordinate (packed long) to list of trees affecting that chunk.
+     * Key format: "dimension/regionX,regionZ"
+     */
+    private static final int PLACEMENT_INDEX_CACHE_SIZE = 25;
+    private static final LinkedHashMap<String, Map<Long, List<TreePlacementData>>> placement_index_cache =
+        new LinkedHashMap<>(PLACEMENT_INDEX_CACHE_SIZE, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Map<Long, List<TreePlacementData>>> eldest) {
+                return size() > PLACEMENT_INDEX_CACHE_SIZE;
+            }
+        };
+
+    // P2.1 Analytics
+    private static long placement_index_hits = 0;
+    private static long placement_index_misses = 0;
+
+    /**
+     * P1.3 Optimization: Cache structure detection results per chunk.
+     * Stores whether a chunk contains surface structures to avoid repeated getAllReferences() calls.
+     * Key format: "dimension/chunkX,chunkZ"
+     * Value: true = has surface structures (tree placement fails), false = no surface structures
+     */
+    private static final int STRUCTURE_CACHE_SIZE = 1024; // Larger cache for chunk-level granularity
+    private static final LinkedHashMap<String, Boolean> structure_detection_cache =
+        new LinkedHashMap<>(STRUCTURE_CACHE_SIZE, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Boolean> eldest) {
+                return size() > STRUCTURE_CACHE_SIZE;
+            }
+        };
+
+    // P1.3 Analytics
+    private static long structure_cache_hits = 0;
+    private static long structure_cache_misses = 0;
+
     private static final Map<String, String> dictionary = new HashMap<>();
     private static final Map<String, short[]> tree_shape_part1 = new HashMap<>();
     private static final Map<String, short[]> tree_shape_part2 = new HashMap<>();
@@ -155,6 +227,10 @@ public class Cache {
             cached_enabled_species = null;
             // P1.1: Clear detailed detection cache
             detailed_detection_cache.clear();
+            // P2.1: Clear placement index cache
+            placement_index_cache.clear();
+            // P1.3: Clear structure detection cache
+            structure_detection_cache.clear();
             // G5: Flush any pending persistence before clearing
             flushPlacementPersistence();
             placement_cache.clear();
@@ -683,6 +759,197 @@ public class Cache {
         detection_cache_misses = 0;
         detection_lookups_total = 0;
         detection_lookups_found = 0;
+    }
+
+    // ==================== P2.1 Optimization: Indexed Placement Cache ====================
+
+    /**
+     * P2.1 Optimization: Get trees affecting a specific chunk.
+     * Returns pre-indexed list of trees for O(1) lookup instead of O(n) scan.
+     * @param dimension The dimension name
+     * @param regionKey The region key (e.g., "0,0")
+     * @param chunkX The chunk X coordinate
+     * @param chunkZ The chunk Z coordinate
+     * @return List of trees affecting this chunk, or empty list if none
+     */
+    public static List<TreePlacementData> getTreesForChunk(String dimension, String regionKey, int chunkX, int chunkZ) {
+        String cacheKey = dimension + "/" + regionKey;
+
+        // Check index cache first
+        synchronized (placement_index_cache) {
+            Map<Long, List<TreePlacementData>> regionIndex = placement_index_cache.get(cacheKey);
+            if (regionIndex != null) {
+                placement_index_hits++;
+                long chunkKey = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+                return regionIndex.getOrDefault(chunkKey, Collections.emptyList());
+            }
+        }
+
+        // Cache miss - need to build index
+        placement_index_misses++;
+        Map<Long, List<TreePlacementData>> regionIndex = buildPlacementIndex(dimension, regionKey);
+
+        // Store in cache
+        synchronized (placement_index_cache) {
+            placement_index_cache.put(cacheKey, regionIndex);
+        }
+
+        long chunkKey = ((long) chunkX << 32) | (chunkZ & 0xFFFFFFFFL);
+        return regionIndex.getOrDefault(chunkKey, Collections.emptyList());
+    }
+
+    /**
+     * P2.1 Optimization: Build chunk-indexed placement data for a region.
+     * Parses all trees once and indexes by which chunks they affect.
+     * @param dimension The dimension name
+     * @param regionKey The region key
+     * @return Map of chunk key to list of trees affecting that chunk
+     */
+    private static Map<Long, List<TreePlacementData>> buildPlacementIndex(String dimension, String regionKey) {
+        Map<Long, List<TreePlacementData>> index = new HashMap<>();
+
+        // Get raw placement data (from G5 cache or disk)
+        ByteBuffer buffer = getPlacement(dimension, regionKey);
+        if (buffer == null) {
+            String path = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + regionKey + ".bin";
+            buffer = FileManager.readBIN(path);
+        }
+
+        if (buffer == null || buffer.remaining() == 0) {
+            return index;
+        }
+
+        // Parse all trees and index by affected chunks
+        while (buffer.remaining() > 0) {
+            try {
+                int from_chunkX = buffer.getInt();
+                int from_chunkZ = buffer.getInt();
+                int to_chunkX = buffer.getInt();
+                int to_chunkZ = buffer.getInt();
+                String id = getDictionary(String.valueOf(buffer.getShort()), true);
+                String chosen = getDictionary(String.valueOf(buffer.getShort()), true);
+                int center_posX = buffer.getInt();
+                int center_posZ = buffer.getInt();
+                int rotation = buffer.get();
+                boolean mirrored = buffer.get() == 1;
+                int start_height_offset = buffer.getShort();
+                int up_sizeY = buffer.getShort();
+                String ground_block = getDictionary(String.valueOf(buffer.getShort()), true);
+                int dead_tree_level = buffer.getShort();
+
+                TreePlacementData tree = new TreePlacementData(
+                    from_chunkX, from_chunkZ, to_chunkX, to_chunkZ,
+                    id, chosen, center_posX, center_posZ,
+                    rotation, mirrored, start_height_offset, up_sizeY,
+                    ground_block, dead_tree_level
+                );
+
+                // Add tree to every chunk it affects
+                for (int cx = from_chunkX; cx <= to_chunkX; cx++) {
+                    for (int cz = from_chunkZ; cz <= to_chunkZ; cz++) {
+                        long chunkKey = ((long) cx << 32) | (cz & 0xFFFFFFFFL);
+                        index.computeIfAbsent(chunkKey, k -> new ArrayList<>()).add(tree);
+                    }
+                }
+
+            } catch (Exception e) {
+                break;
+            }
+        }
+
+        return index;
+    }
+
+    /**
+     * P2.1 Optimization: Invalidate placement index for a region.
+     * Called when new placement data is written.
+     * @param dimension The dimension name
+     * @param regionKey The region key
+     */
+    public static void invalidatePlacementIndex(String dimension, String regionKey) {
+        String cacheKey = dimension + "/" + regionKey;
+        synchronized (placement_index_cache) {
+            placement_index_cache.remove(cacheKey);
+        }
+    }
+
+    /**
+     * P2.1 Analytics: Get placement index cache statistics.
+     */
+    public static String getPlacementIndexStats() {
+        long total = placement_index_hits + placement_index_misses;
+        double hitRate = total > 0 ? (100.0 * placement_index_hits / total) : 0;
+        return String.format(
+            "PlacementIndex: regions=%d/%d, hits=%d, misses=%d, hitRate=%.1f%%",
+            placement_index_cache.size(), PLACEMENT_INDEX_CACHE_SIZE,
+            placement_index_hits, placement_index_misses, hitRate
+        );
+    }
+
+    /**
+     * P2.1 Analytics: Reset placement index statistics.
+     */
+    public static void resetPlacementIndexStats() {
+        placement_index_hits = 0;
+        placement_index_misses = 0;
+    }
+
+    // ==================== P1.3 Optimization: Structure Detection Cache ====================
+
+    /**
+     * P1.3 Optimization: Check if a chunk has cached structure detection result.
+     * @param dimension The dimension name
+     * @param chunkX The chunk X coordinate
+     * @param chunkZ The chunk Z coordinate
+     * @return Boolean.TRUE if has surface structures, Boolean.FALSE if not, null if not cached
+     */
+    public static Boolean getStructureDetection(String dimension, int chunkX, int chunkZ) {
+        String cacheKey = dimension + "/" + chunkX + "," + chunkZ;
+        synchronized (structure_detection_cache) {
+            Boolean cached = structure_detection_cache.get(cacheKey);
+            if (cached != null) {
+                structure_cache_hits++;
+            }
+            return cached;
+        }
+    }
+
+    /**
+     * P1.3 Optimization: Store structure detection result for a chunk.
+     * @param dimension The dimension name
+     * @param chunkX The chunk X coordinate
+     * @param chunkZ The chunk Z coordinate
+     * @param hasSurfaceStructures true if chunk has surface structures
+     */
+    public static void cacheStructureDetection(String dimension, int chunkX, int chunkZ, boolean hasSurfaceStructures) {
+        String cacheKey = dimension + "/" + chunkX + "," + chunkZ;
+        synchronized (structure_detection_cache) {
+            if (!structure_detection_cache.containsKey(cacheKey)) {
+                structure_cache_misses++;
+            }
+            structure_detection_cache.put(cacheKey, hasSurfaceStructures);
+        }
+    }
+
+    /**
+     * P1.3 Analytics: Get structure detection cache statistics.
+     */
+    public static String getStructureCacheStats() {
+        long total = structure_cache_hits + structure_cache_misses;
+        double hitRate = total > 0 ? (100.0 * structure_cache_hits / total) : 0;
+        return String.format(
+            "StructureCache: chunks=%d/%d, hits=%d, misses=%d, hitRate=%.1f%%",
+            structure_detection_cache.size(), STRUCTURE_CACHE_SIZE,
+            structure_cache_hits, structure_cache_misses, hitRate
+        );
+    }
+
+    /**
+     * P1.3 Analytics: Reset structure detection cache statistics.
+     */
+    public static void resetStructureCacheStats() {
+        structure_cache_hits = 0;
+        structure_cache_misses = 0;
     }
 
     // ==================== G5 Optimization: In-Memory Placement Cache ====================

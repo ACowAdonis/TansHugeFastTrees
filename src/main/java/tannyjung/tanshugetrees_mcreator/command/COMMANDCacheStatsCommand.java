@@ -18,12 +18,18 @@ public class COMMANDCacheStatsCommand {
                 .requires(s -> s.hasPermission(2))
                 .then(Commands.literal("cache")
                     .then(Commands.literal("stats").executes(arguments -> {
-                        String stats = Cache.getDetectionCacheStats();
-                        arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + stats), false);
+                        String detectionStats = Cache.getDetectionCacheStats();
+                        String placementStats = Cache.getPlacementIndexStats();
+                        String structureStats = Cache.getStructureCacheStats();
+                        arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + detectionStats), false);
+                        arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + placementStats), false);
+                        arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + structureStats), false);
                         return 0;
                     }))
                     .then(Commands.literal("reset").executes(arguments -> {
                         Cache.resetDetectionCacheStats();
+                        Cache.resetPlacementIndexStats();
+                        Cache.resetStructureCacheStats();
                         arguments.getSource().sendSuccess(() -> Component.literal("[THT] Cache statistics reset"), false);
                         return 0;
                     }))

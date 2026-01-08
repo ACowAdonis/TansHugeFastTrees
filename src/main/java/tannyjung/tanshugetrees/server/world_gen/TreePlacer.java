@@ -42,55 +42,30 @@ public class TreePlacer {
         RandomSource random = RandomSource.create(level_server.getSeed() ^ (chunk_pos.x * 341873128712L + chunk_pos.z * 132897987541L));
         String regionKey = (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5);
 
-        // G5 Optimization: Check in-memory cache first before disk I/O
-        ByteBuffer get = Cache.getPlacement(dimension, regionKey);
-        if (get == null) {
-            // Cache miss - read from disk (happens after game restart or cache eviction)
-            String placePath = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + regionKey + ".bin";
-            get = FileManager.readBIN(placePath);
-        }
+        // P2.1 Optimization: Get only trees affecting this chunk via indexed lookup
+        // Instead of O(n) scan through all trees in region, we get O(1) lookup of relevant trees
+        List<Cache.TreePlacementData> trees = Cache.getTreesForChunk(dimension, regionKey, chunk_pos.x, chunk_pos.z);
 
-        while (get.remaining() > 0) {
+        for (Cache.TreePlacementData tree : trees) {
 
-            int from_chunkX = 0;
-            int from_chunkZ = 0;
-            int to_chunkX = 0;
-            int to_chunkZ = 0;
-            String id = "";
-            String chosen = "";
-            int center_posX = 0;
-            int center_posZ = 0;
-            int rotation = 0;
-            boolean mirrored = false;
-            int start_height_offset = 0;
-            int up_sizeY = 0;
-            String ground_block = "";
-            int dead_tree_level = 0;
+            // Extract tree data from pre-parsed structure
+            int from_chunkX = tree.from_chunkX;
+            int from_chunkZ = tree.from_chunkZ;
+            int to_chunkX = tree.to_chunkX;
+            int to_chunkZ = tree.to_chunkZ;
+            String id = tree.id;
+            String chosen = tree.chosen;
+            int center_posX = tree.center_posX;
+            int center_posZ = tree.center_posZ;
+            int rotation = tree.rotation;
+            boolean mirrored = tree.mirrored;
+            int start_height_offset = tree.start_height_offset;
+            int up_sizeY = tree.up_sizeY;
+            String ground_block = tree.ground_block;
+            int dead_tree_level = tree.dead_tree_level;
 
-            try {
-
-                from_chunkX = get.getInt();
-                from_chunkZ = get.getInt();
-                to_chunkX = get.getInt();
-                to_chunkZ = get.getInt();
-                id = Cache.getDictionary(String.valueOf(get.getShort()), true);
-                chosen = Cache.getDictionary(String.valueOf(get.getShort()), true);
-                center_posX = get.getInt();
-                center_posZ = get.getInt();
-                rotation = get.get();
-                mirrored = get.get() == 1;
-                start_height_offset = get.getShort();
-                up_sizeY = get.getShort();
-                ground_block = Cache.getDictionary(String.valueOf(get.getShort()), true);
-                dead_tree_level = get.getShort();
-
-            } catch (Exception ignored) {
-
-                return;
-
-            }
-
-            if ((from_chunkX <= chunk_pos.x && chunk_pos.x <= to_chunkX) && (from_chunkZ <= chunk_pos.z && chunk_pos.z <= to_chunkZ)) {
+            // Tree is guaranteed to affect this chunk (pre-filtered by index)
+            {
 
                 // Detailed Detection
                 {
@@ -204,7 +179,7 @@ public class TreePlacer {
                             test:
                             {
 
-                                // Structure Detection
+                                // Structure Detection - P1.3 Optimization: Cache results per chunk
                                 {
 
                                     int radius = ConfigMain.structure_detection_size;
@@ -215,7 +190,21 @@ public class TreePlacer {
 
                                             for (int scanZ = -radius; scanZ <= radius; scanZ++) {
 
-                                                ChunkAccess chunk = level_accessor.getChunk(center_chunkX + scanX, center_chunkZ + scanZ, ChunkStatus.STRUCTURE_REFERENCES, false);
+                                                int checkChunkX = center_chunkX + scanX;
+                                                int checkChunkZ = center_chunkZ + scanZ;
+
+                                                // P1.3: Check cache first
+                                                Boolean cachedResult = Cache.getStructureDetection(dimension, checkChunkX, checkChunkZ);
+                                                if (cachedResult != null) {
+                                                    if (cachedResult) {
+                                                        break test; // Has surface structures - fail
+                                                    }
+                                                    continue; // No surface structures - skip to next chunk
+                                                }
+
+                                                // Cache miss - do actual structure check
+                                                boolean hasSurfaceStructures = false;
+                                                ChunkAccess chunk = level_accessor.getChunk(checkChunkX, checkChunkZ, ChunkStatus.STRUCTURE_REFERENCES, false);
 
                                                 if (chunk != null) {
 
@@ -227,7 +216,8 @@ public class TreePlacer {
 
                                                             if (structure.step().equals(GenerationStep.Decoration.SURFACE_STRUCTURES) == true) {
 
-                                                                break test;
+                                                                hasSurfaceStructures = true;
+                                                                break;
 
                                                             }
 
@@ -235,6 +225,13 @@ public class TreePlacer {
 
                                                     }
 
+                                                }
+
+                                                // P1.3: Cache the result
+                                                Cache.cacheStructureDetection(dimension, checkChunkX, checkChunkZ, hasSurfaceStructures);
+
+                                                if (hasSurfaceStructures) {
+                                                    break test;
                                                 }
 
                                             }
