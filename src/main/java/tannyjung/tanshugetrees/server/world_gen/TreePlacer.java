@@ -101,44 +101,24 @@ public class TreePlacer {
                     int center_chunkX = center_posX >> 4;
                     int center_chunkZ = center_posZ >> 4;
 
-                    // Already Tested
+                    // Already Tested - P1.1+P1.2 Optimization: Use indexed cache instead of per-tree disk read
+                    // Reduces O(n) linear scan per tree to O(1) hash lookup, and caches region data in memory
                     {
+                        int regionX = chunk_pos.x >> 5;
+                        int regionZ = chunk_pos.z >> 5;
+                        Map<Long, Cache.DetectionResult> detectionCache = Cache.getDetailedDetection(dimension, regionX, regionZ);
+                        long posKey = Cache.makeDetectionKey(center_posX, center_posZ);
+                        Cache.DetectionResult result = detectionCache.get(posKey);
 
-                        ByteBuffer detailed_detection = FileManager.readBIN(Handcode.path_world_data + "/world_gen/detailed_detection/" + dimension + "/" + (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5) + ".bin");
-                        boolean get_pass = false;
-                        int get_posX = 0;
-                        int get_posY = 0;
-                        int get_posZ = 0;
-                        int get_dead_tree_level = 0;
+                        // P1.1 Analytics: Track lookup results
+                        Cache.recordDetectionLookup(result != null);
 
-                        while (detailed_detection.remaining() > 0) {
-
-                            try {
-
-                                get_pass = detailed_detection.get() == 1;
-                                get_posX = detailed_detection.getInt();
-                                get_posY = detailed_detection.getInt();
-                                get_posZ = detailed_detection.getInt();
-                                get_dead_tree_level = detailed_detection.getShort();
-
-                            } catch (Exception ignored) {
-
-                                return;
-
-                            }
-
-                            if (center_posX == get_posX && center_posZ == get_posZ) {
-
-                                already_tested = true;
-                                pass = get_pass;
-                                center_posY = get_posY;
-                                dead_tree_level = get_dead_tree_level;
-                                break;
-
-                            }
-
+                        if (result != null) {
+                            already_tested = true;
+                            pass = result.pass;
+                            center_posY = result.posY;
+                            dead_tree_level = result.deadTreeLevel;
                         }
-
                     }
 
                     if (already_tested == false) {
@@ -474,6 +454,7 @@ public class TreePlacer {
      * Flushes all pending detailed_detection writes to disk.
      * Called at the end of chunk processing to batch file I/O operations.
      * Uses thread-local buffer for C2ME compatibility (each thread flushes its own buffer).
+     * P1.1: Also invalidates detection cache for affected regions to ensure consistency.
      */
     private static void flushPendingDetailedDetection () {
 
@@ -487,6 +468,23 @@ public class TreePlacer {
 
             String path = Handcode.path_world_data + "/world_gen/detailed_detection/" + entry.getKey() + ".bin";
             FileManager.writeBIN(path, entry.getValue(), true);
+
+            // P1.1: Invalidate cache for this region since we wrote new data
+            // Key format: "dimension/regionX,regionZ"
+            String key = entry.getKey();
+            int slashIdx = key.indexOf('/');
+            if (slashIdx > 0) {
+                String dimension = key.substring(0, slashIdx);
+                String regionCoords = key.substring(slashIdx + 1);
+                String[] coords = regionCoords.split(",");
+                if (coords.length == 2) {
+                    try {
+                        int regionX = Integer.parseInt(coords[0]);
+                        int regionZ = Integer.parseInt(coords[1]);
+                        Cache.invalidateDetectionCache(dimension, regionX, regionZ);
+                    } catch (NumberFormatException ignored) {}
+                }
+            }
 
         }
 

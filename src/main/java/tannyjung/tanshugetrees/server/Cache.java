@@ -66,6 +66,43 @@ public class Cache {
     private static List<SpeciesWorldGenConfig> cached_world_gen_config = null;
     private static List<SpeciesWorldGenConfig> cached_enabled_species = null;
 
+    /**
+     * P1.1+P1.2 Optimization: Pre-parsed detection result for a single tree position.
+     * Stores the result of expensive detailed_detection tests.
+     */
+    public static class DetectionResult {
+        public final boolean pass;
+        public final int posY;
+        public final int deadTreeLevel;
+
+        public DetectionResult(boolean pass, int posY, int deadTreeLevel) {
+            this.pass = pass;
+            this.posY = posY;
+            this.deadTreeLevel = deadTreeLevel;
+        }
+    }
+
+    /**
+     * P1.1 Optimization: LRU cache for detailed_detection regions.
+     * Uses odd-square size (25) for optimal region boundary access patterns.
+     * Each entry maps posX,posZ to DetectionResult for O(1) lookup.
+     * ~50KB per region, ~1.25MB total for 25-region cache.
+     */
+    private static final int DETECTION_CACHE_SIZE = 25;
+    private static final LinkedHashMap<String, Map<Long, DetectionResult>> detailed_detection_cache =
+        new LinkedHashMap<>(DETECTION_CACHE_SIZE, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, Map<Long, DetectionResult>> eldest) {
+                return size() > DETECTION_CACHE_SIZE;
+            }
+        };
+
+    // P1.1 Analytics: Track cache performance
+    private static long detection_cache_hits = 0;
+    private static long detection_cache_misses = 0;
+    private static long detection_lookups_total = 0;
+    private static long detection_lookups_found = 0;
+
     private static final Map<String, String> dictionary = new HashMap<>();
     private static final Map<String, short[]> tree_shape_part1 = new HashMap<>();
     private static final Map<String, short[]> tree_shape_part2 = new HashMap<>();
@@ -116,6 +153,8 @@ public class Cache {
             storage_file_lists.clear();
             cached_world_gen_config = null;
             cached_enabled_species = null;
+            // P1.1: Clear detailed detection cache
+            detailed_detection_cache.clear();
             // G5: Flush any pending persistence before clearing
             flushPlacementPersistence();
             placement_cache.clear();
@@ -508,6 +547,142 @@ public class Cache {
 
         return cached_enabled_species;
 
+    }
+
+    // ==================== P1.1+P1.2 Optimization: Detailed Detection Cache ====================
+
+    /**
+     * P1.1+P1.2 Optimization: Get indexed detection results for a region.
+     * Loads from disk on first access, then caches with LRU eviction.
+     * Returns position-indexed map for O(1) lookup by tree coordinates.
+     * @param dimension The dimension name (e.g., "minecraft-overworld")
+     * @param regionX The region X coordinate (chunk_pos.x >> 5)
+     * @param regionZ The region Z coordinate (chunk_pos.z >> 5)
+     * @return Map of position key to DetectionResult, or empty map if no data
+     */
+    public static Map<Long, DetectionResult> getDetailedDetection(String dimension, int regionX, int regionZ) {
+        String cacheKey = dimension + "/" + regionX + "," + regionZ;
+
+        // Check cache first (synchronized for LRU access-order updates)
+        synchronized (detailed_detection_cache) {
+            Map<Long, DetectionResult> cached = detailed_detection_cache.get(cacheKey);
+            if (cached != null) {
+                detection_cache_hits++;
+                return cached;
+            }
+        }
+
+        // Cache miss - load from disk and index
+        detection_cache_misses++;
+        String path = Handcode.path_world_data + "/world_gen/detailed_detection/" + dimension + "/" + regionX + "," + regionZ + ".bin";
+        Map<Long, DetectionResult> indexed = loadAndIndexDetection(path);
+
+        // Store in cache (synchronized for thread-safe put)
+        synchronized (detailed_detection_cache) {
+            detailed_detection_cache.put(cacheKey, indexed);
+        }
+
+        return indexed;
+    }
+
+    /**
+     * P1.2 Optimization: Load detection binary and index by position for O(1) lookup.
+     * Converts linear scan to hash lookup, reducing complexity from O(n) to O(1).
+     * @param path Path to the detailed_detection binary file
+     * @return Map of position key (packed long) to DetectionResult
+     */
+    private static Map<Long, DetectionResult> loadAndIndexDetection(String path) {
+        Map<Long, DetectionResult> indexed = new HashMap<>();
+
+        ByteBuffer buffer = FileManager.readBIN(path);
+        if (buffer == null || buffer.remaining() == 0) {
+            return indexed;
+        }
+
+        // Binary format: pass(byte), posX(int), posY(int), posZ(int), deadTreeLevel(short)
+        // Total: 1 + 4 + 4 + 4 + 2 = 15 bytes per entry
+        while (buffer.remaining() >= 15) {
+            try {
+                boolean pass = buffer.get() == 1;
+                int posX = buffer.getInt();
+                int posY = buffer.getInt();
+                int posZ = buffer.getInt();
+                int deadTreeLevel = buffer.getShort();
+
+                // Pack posX and posZ into a single long key for O(1) HashMap lookup
+                long posKey = ((long) posX << 32) | (posZ & 0xFFFFFFFFL);
+                indexed.put(posKey, new DetectionResult(pass, posY, deadTreeLevel));
+
+            } catch (Exception e) {
+                break;
+            }
+        }
+
+        return indexed;
+    }
+
+    /**
+     * P1.2 Optimization: Create position key for detection lookup.
+     * Packs X and Z coordinates into a single long for HashMap key.
+     * @param posX The X position
+     * @param posZ The Z position
+     * @return Packed long key
+     */
+    public static long makeDetectionKey(int posX, int posZ) {
+        return ((long) posX << 32) | (posZ & 0xFFFFFFFFL);
+    }
+
+    /**
+     * P1.1 Optimization: Invalidate detection cache for a region.
+     * Called when new detection results are written to ensure cache consistency.
+     * @param dimension The dimension name
+     * @param regionX The region X coordinate
+     * @param regionZ The region Z coordinate
+     */
+    public static void invalidateDetectionCache(String dimension, int regionX, int regionZ) {
+        String cacheKey = dimension + "/" + regionX + "," + regionZ;
+        synchronized (detailed_detection_cache) {
+            detailed_detection_cache.remove(cacheKey);
+        }
+    }
+
+    /**
+     * P1.1 Analytics: Record a detection lookup result.
+     * Call after looking up a position in the detection cache.
+     * @param found true if the position was found in the cache
+     */
+    public static void recordDetectionLookup(boolean found) {
+        detection_lookups_total++;
+        if (found) {
+            detection_lookups_found++;
+        }
+    }
+
+    /**
+     * P1.1 Analytics: Get detection cache statistics.
+     * @return String with cache hit rate, lookup stats, and current cache size
+     */
+    public static String getDetectionCacheStats() {
+        long totalRegionAccesses = detection_cache_hits + detection_cache_misses;
+        double hitRate = totalRegionAccesses > 0 ? (100.0 * detection_cache_hits / totalRegionAccesses) : 0;
+        double lookupFoundRate = detection_lookups_total > 0 ? (100.0 * detection_lookups_found / detection_lookups_total) : 0;
+
+        return String.format(
+            "DetectionCache: regions=%d/%d, hits=%d, misses=%d, hitRate=%.1f%%, lookups=%d, found=%d (%.1f%%)",
+            detailed_detection_cache.size(), DETECTION_CACHE_SIZE,
+            detection_cache_hits, detection_cache_misses, hitRate,
+            detection_lookups_total, detection_lookups_found, lookupFoundRate
+        );
+    }
+
+    /**
+     * P1.1 Analytics: Reset detection cache statistics.
+     */
+    public static void resetDetectionCacheStats() {
+        detection_cache_hits = 0;
+        detection_cache_misses = 0;
+        detection_lookups_total = 0;
+        detection_lookups_found = 0;
     }
 
     // ==================== G5 Optimization: In-Memory Placement Cache ====================
