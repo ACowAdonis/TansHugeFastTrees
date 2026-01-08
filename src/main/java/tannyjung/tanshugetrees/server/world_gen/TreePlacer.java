@@ -37,7 +37,28 @@ public class TreePlacer {
     private static final ThreadLocal<Map<String, List<String>>> pending_detailed_detection =
             ThreadLocal.withInitial(HashMap::new);
 
+    /**
+     * P3.1 Optimization: Cached wrapper for getBaseHeight calls.
+     * Checks thread-local cache first, computes and caches on miss.
+     */
+    private static int getCachedBaseHeight(ChunkGenerator chunk_generator, int posX, int posZ,
+                                           Heightmap.Types heightmapType, LevelAccessor level_accessor,
+                                           ServerLevel level_server) {
+        String typeName = heightmapType.name();
+        Integer cached = Cache.getHeightmapCached(posX, posZ, typeName);
+        if (cached != null) {
+            return cached;
+        }
+        int height = chunk_generator.getBaseHeight(posX, posZ, heightmapType, level_accessor,
+                level_server.getChunkSource().randomState());
+        Cache.cacheHeightmap(posX, posZ, typeName, height);
+        return height;
+    }
+
     public static void start (LevelAccessor level_accessor, ServerLevel level_server, ChunkGenerator chunk_generator, String dimension, ChunkPos chunk_pos) {
+
+        // P3.1: Clear heightmap cache for fresh chunk processing
+        Cache.clearHeightmapCache();
 
         RandomSource random = RandomSource.create(level_server.getSeed() ^ (chunk_pos.x * 341873128712L + chunk_pos.z * 132897987541L));
         String regionKey = (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5);
@@ -242,7 +263,7 @@ public class TreePlacer {
 
                                 }
 
-                                int originalY = chunk_generator.getBaseHeight(center_posX, center_posZ, Heightmap.Types.OCEAN_FLOOR_WG, level_accessor, level_server.getChunkSource().randomState());
+                                int originalY = getCachedBaseHeight(chunk_generator, center_posX, center_posZ, Heightmap.Types.OCEAN_FLOOR_WG, level_accessor, level_server);
                                 center_posY = originalY;
 
                                 // Ground Level
@@ -325,10 +346,10 @@ public class TreePlacer {
                                         // Basic Test
                                         {
 
-                                            int pos1 = chunk_generator.getBaseHeight(center_posX + size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
-                                            int pos2 = chunk_generator.getBaseHeight(center_posX + size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
-                                            int pos3 = chunk_generator.getBaseHeight(center_posX - size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
-                                            int pos4 = chunk_generator.getBaseHeight(center_posX - size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                            int pos1 = getCachedBaseHeight(chunk_generator, center_posX + size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                            int pos2 = getCachedBaseHeight(chunk_generator, center_posX + size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                            int pos3 = getCachedBaseHeight(chunk_generator, center_posX - size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                            int pos4 = getCachedBaseHeight(chunk_generator, center_posX - size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
                                             boolean test1 = (originalY < pos1 && height_up > pos1) || (originalY >= pos1 && pos1 > height_down);
                                             boolean test2 = (originalY < pos2 && height_up > pos2) || (originalY >= pos2 && pos2 > height_down);
                                             boolean test3 = (originalY < pos3 && height_up > pos3) || (originalY >= pos3 && pos3 > height_down);
@@ -346,9 +367,9 @@ public class TreePlacer {
 
                                             int fallen_direction = RandomSource.create(level_accessor.getServer().overworld().getSeed() ^ (center_posX * 341873128712L + center_posZ * 132897987541L)).nextInt(4) + 1;
                                             int[] pos_converted = OutsideUtils.convertPosRotationMirrored(0, originalY + up_sizeY, 0, rotation, mirrored, fallen_direction);
-                                            int pos1 = chunk_generator.getBaseHeight(center_posX + (int) (pos_converted[0] * 0.5), center_posZ + (int) (pos_converted[2] * 0.5), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
-                                            int pos2 = chunk_generator.getBaseHeight(center_posX + (int) (pos_converted[0] * 0.75), center_posZ + (int) (pos_converted[2] * 0.75), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
-                                            int pos3 = chunk_generator.getBaseHeight(center_posX + (int) (pos_converted[0] * 1.0), center_posZ + (int) (pos_converted[2] * 1.0), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                            int pos1 = getCachedBaseHeight(chunk_generator, center_posX + (int) (pos_converted[0] * 0.5), center_posZ + (int) (pos_converted[2] * 0.5), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                            int pos2 = getCachedBaseHeight(chunk_generator, center_posX + (int) (pos_converted[0] * 0.75), center_posZ + (int) (pos_converted[2] * 0.75), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                            int pos3 = getCachedBaseHeight(chunk_generator, center_posX + (int) (pos_converted[0] * 1.0), center_posZ + (int) (pos_converted[2] * 1.0), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
 
                                             if (originalY > pos1 && originalY > pos2 && originalY > pos3) {
 
@@ -367,7 +388,7 @@ public class TreePlacer {
 
                                     if (tree_type.equals("adapt") == false) {
 
-                                        int highestY = chunk_generator.getBaseHeight(center_posX, center_posZ, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                        int highestY = getCachedBaseHeight(chunk_generator, center_posX, center_posZ, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
 
                                         if ((tree_type.equals("land") == true && (originalY < highestY)) || (tree_type.equals("water") == true && (originalY == highestY))) {
 

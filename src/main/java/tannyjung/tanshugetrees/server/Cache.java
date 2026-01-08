@@ -175,6 +175,19 @@ public class Cache {
     private static long structure_cache_hits = 0;
     private static long structure_cache_misses = 0;
 
+    /**
+     * P3.1 Optimization: Thread-local heightmap cache for chunk processing.
+     * Caches getBaseHeight results within a single chunk's tree processing.
+     * Key format: "posX,posZ,heightmapType" (e.g., "100,200,OCEAN_FLOOR_WG")
+     * Cleared at start of each chunk via clearHeightmapCache().
+     */
+    private static final ThreadLocal<Map<String, Integer>> heightmap_cache =
+        ThreadLocal.withInitial(HashMap::new);
+
+    // P3.1 Analytics
+    private static long heightmap_cache_hits = 0;
+    private static long heightmap_cache_misses = 0;
+
     private static final Map<String, String> dictionary = new HashMap<>();
     private static final Map<String, short[]> tree_shape_part1 = new HashMap<>();
     private static final Map<String, short[]> tree_shape_part2 = new HashMap<>();
@@ -950,6 +963,67 @@ public class Cache {
     public static void resetStructureCacheStats() {
         structure_cache_hits = 0;
         structure_cache_misses = 0;
+    }
+
+    // ==================== P3.1 Optimization: Heightmap Cache ====================
+
+    /**
+     * P3.1 Optimization: Clear heightmap cache at start of chunk processing.
+     * Must be called at the beginning of TreePlacer.start() to ensure fresh cache.
+     */
+    public static void clearHeightmapCache() {
+        heightmap_cache.get().clear();
+    }
+
+    /**
+     * P3.1 Optimization: Get cached heightmap result.
+     * @param posX X coordinate
+     * @param posZ Z coordinate
+     * @param heightmapType The heightmap type name (e.g., "OCEAN_FLOOR_WG")
+     * @return Cached height, or null if not cached
+     */
+    public static Integer getHeightmapCached(int posX, int posZ, String heightmapType) {
+        String key = posX + "," + posZ + "," + heightmapType;
+        Integer cached = heightmap_cache.get().get(key);
+        if (cached != null) {
+            heightmap_cache_hits++;
+        }
+        return cached;
+    }
+
+    /**
+     * P3.1 Optimization: Store heightmap result in cache.
+     * @param posX X coordinate
+     * @param posZ Z coordinate
+     * @param heightmapType The heightmap type name
+     * @param height The computed height value
+     */
+    public static void cacheHeightmap(int posX, int posZ, String heightmapType, int height) {
+        String key = posX + "," + posZ + "," + heightmapType;
+        if (!heightmap_cache.get().containsKey(key)) {
+            heightmap_cache_misses++;
+        }
+        heightmap_cache.get().put(key, height);
+    }
+
+    /**
+     * P3.1 Analytics: Get heightmap cache statistics.
+     */
+    public static String getHeightmapCacheStats() {
+        long total = heightmap_cache_hits + heightmap_cache_misses;
+        double hitRate = total > 0 ? (100.0 * heightmap_cache_hits / total) : 0;
+        return String.format(
+            "HeightmapCache: hits=%d, misses=%d, hitRate=%.1f%%",
+            heightmap_cache_hits, heightmap_cache_misses, hitRate
+        );
+    }
+
+    /**
+     * P3.1 Analytics: Reset heightmap cache statistics.
+     */
+    public static void resetHeightmapCacheStats() {
+        heightmap_cache_hits = 0;
+        heightmap_cache_misses = 0;
     }
 
     // ==================== G5 Optimization: In-Memory Placement Cache ====================

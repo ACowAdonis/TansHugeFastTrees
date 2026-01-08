@@ -21,15 +21,18 @@ public class COMMANDCacheStatsCommand {
                         String detectionStats = Cache.getDetectionCacheStats();
                         String placementStats = Cache.getPlacementIndexStats();
                         String structureStats = Cache.getStructureCacheStats();
+                        String heightmapStats = Cache.getHeightmapCacheStats();
                         arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + detectionStats), false);
                         arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + placementStats), false);
                         arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + structureStats), false);
+                        arguments.getSource().sendSuccess(() -> Component.literal("[THT] " + heightmapStats), false);
                         return 0;
                     }))
                     .then(Commands.literal("reset").executes(arguments -> {
                         Cache.resetDetectionCacheStats();
                         Cache.resetPlacementIndexStats();
                         Cache.resetStructureCacheStats();
+                        Cache.resetHeightmapCacheStats();
                         arguments.getSource().sendSuccess(() -> Component.literal("[THT] Cache statistics reset"), false);
                         return 0;
                     }))
