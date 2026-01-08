@@ -43,7 +43,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
-@Mod("tanshugetrees")
+@Mod("tanshugefasttrees")
 @Mod.EventBusSubscriber
 public class Handcode {
 
@@ -65,6 +65,56 @@ public class Handcode {
 
     public Handcode () {
 
+        // Check for conflicting original mod (both enabled)
+        if (ModList.get().isLoaded("tanshugetrees")) {
+            throw new RuntimeException(
+                "\n\n" +
+                "=======================================================================\n" +
+                "  Tan's Huge Trees conflict detected!\n" +
+                "=======================================================================\n" +
+                "\n" +
+                "  Both 'Tan's Huge Trees' and 'Tan's Huge Fast Trees' are enabled.\n" +
+                "  This performance fork REPLACES the original mod.\n" +
+                "\n" +
+                "  To fix: Disable the original Tan's Huge Trees mod.\n" +
+                "  - In CurseForge/Modrinth: Disable it in your mod list\n" +
+                "  - Manual: Rename TansHugeTrees-*.jar to TansHugeTrees-*.jar.disabled\n" +
+                "\n" +
+                "  The original mod must remain installed (disabled) for this fork to work.\n" +
+                "  Download the original from:\n" +
+                "  - https://modrinth.com/mod/tans-huge-trees\n" +
+                "  - https://www.curseforge.com/minecraft/mc-mods/tans-huge-trees\n" +
+                "\n" +
+                "=======================================================================\n"
+            );
+        }
+
+        // Check for presence of original mod JAR (disabled or otherwise)
+        // This fork requires Tan's original mod to be installed to support his work
+        if (!isOriginalModPresent()) {
+            throw new RuntimeException(
+                "\n\n" +
+                "=======================================================================\n" +
+                "  Tan's Huge Trees not found!\n" +
+                "=======================================================================\n" +
+                "\n" +
+                "  This performance fork requires the original Tan's Huge Trees mod\n" +
+                "  to be installed (but disabled) in your mods folder.\n" +
+                "\n" +
+                "  Please download the original mod from:\n" +
+                "  - https://modrinth.com/mod/tans-huge-trees\n" +
+                "  - https://www.curseforge.com/minecraft/mc-mods/tans-huge-trees\n" +
+                "\n" +
+                "  After downloading, place it in your mods folder and rename it to:\n" +
+                "  TansHugeTrees-*.jar.disabled\n" +
+                "\n" +
+                "  This ensures the original author receives proper download credit\n" +
+                "  for their work while using this performance-optimized fork.\n" +
+                "\n" +
+                "=======================================================================\n"
+            );
+        }
+
         Handcode.logger.info("Starting...");
 
         // Thread Start
@@ -81,6 +131,36 @@ public class Handcode {
         runRegistries();
         runRestart(null, false);
 
+    }
+
+    /**
+     * Check if the original Tan's Huge Trees mod JAR is present in the mods folder.
+     * Looks for files containing "tanshugetrees" (case-insensitive) with .jar or .jar.disabled extension.
+     * This ensures users have downloaded the original mod to support Tan's work.
+     */
+    private static boolean isOriginalModPresent() {
+        java.io.File modsFolder = new java.io.File(Utils.path_game, "mods");
+        if (!modsFolder.exists() || !modsFolder.isDirectory()) {
+            return false;
+        }
+
+        java.io.File[] files = modsFolder.listFiles();
+        if (files == null) {
+            return false;
+        }
+
+        for (java.io.File file : files) {
+            String name = file.getName().toLowerCase();
+            // Look for original mod JAR (not this fork)
+            // Original uses "tanshugetrees" in filename, this fork uses "tanshugefasttrees"
+            if (name.contains("tanshugetrees") && !name.contains("tanshugefasttrees")) {
+                if (name.endsWith(".jar") || name.endsWith(".jar.disabled")) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static void runRegistries () {
