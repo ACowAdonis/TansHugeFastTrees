@@ -37,56 +37,60 @@ public class TreePlacer {
     private static final ThreadLocal<Map<String, List<String>>> pending_detailed_detection =
             ThreadLocal.withInitial(HashMap::new);
 
-    /**
-     * P3.1 Optimization: Cached wrapper for getBaseHeight calls.
-     * Checks thread-local cache first, computes and caches on miss.
-     */
-    private static int getCachedBaseHeight(ChunkGenerator chunk_generator, int posX, int posZ,
-                                           Heightmap.Types heightmapType, LevelAccessor level_accessor,
-                                           ServerLevel level_server) {
-        String typeName = heightmapType.name();
-        Integer cached = Cache.getHeightmapCached(posX, posZ, typeName);
-        if (cached != null) {
-            return cached;
-        }
-        int height = chunk_generator.getBaseHeight(posX, posZ, heightmapType, level_accessor,
-                level_server.getChunkSource().randomState());
-        Cache.cacheHeightmap(posX, posZ, typeName, height);
-        return height;
-    }
-
     public static void start (LevelAccessor level_accessor, ServerLevel level_server, ChunkGenerator chunk_generator, String dimension, ChunkPos chunk_pos) {
-
-        // P3.1: Clear heightmap cache for fresh chunk processing
-        Cache.clearHeightmapCache();
 
         RandomSource random = RandomSource.create(level_server.getSeed() ^ (chunk_pos.x * 341873128712L + chunk_pos.z * 132897987541L));
         String regionKey = (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5);
 
-        // P2.1 Optimization: Get only trees affecting this chunk via indexed lookup
-        // Instead of O(n) scan through all trees in region, we get O(1) lookup of relevant trees
-        List<Cache.TreePlacementData> trees = Cache.getTreesForChunk(dimension, regionKey, chunk_pos.x, chunk_pos.z);
+        // G5 Optimization: Check in-memory cache first before disk I/O
+        ByteBuffer get = Cache.getPlacement(dimension, regionKey);
+        if (get == null) {
+            // Cache miss - read from disk (happens after game restart or cache eviction)
+            String placePath = Handcode.path_world_data + "/world_gen/place/" + dimension + "/" + regionKey + ".bin";
+            get = FileManager.readBIN(placePath);
+        }
 
-        for (Cache.TreePlacementData tree : trees) {
+        while (get.remaining() > 0) {
 
-            // Extract tree data from pre-parsed structure
-            int from_chunkX = tree.from_chunkX;
-            int from_chunkZ = tree.from_chunkZ;
-            int to_chunkX = tree.to_chunkX;
-            int to_chunkZ = tree.to_chunkZ;
-            String id = tree.id;
-            String chosen = tree.chosen;
-            int center_posX = tree.center_posX;
-            int center_posZ = tree.center_posZ;
-            int rotation = tree.rotation;
-            boolean mirrored = tree.mirrored;
-            int start_height_offset = tree.start_height_offset;
-            int up_sizeY = tree.up_sizeY;
-            String ground_block = tree.ground_block;
-            int dead_tree_level = tree.dead_tree_level;
+            int from_chunkX = 0;
+            int from_chunkZ = 0;
+            int to_chunkX = 0;
+            int to_chunkZ = 0;
+            String id = "";
+            String chosen = "";
+            int center_posX = 0;
+            int center_posZ = 0;
+            int rotation = 0;
+            boolean mirrored = false;
+            int start_height_offset = 0;
+            int up_sizeY = 0;
+            String ground_block = "";
+            int dead_tree_level = 0;
 
-            // Tree is guaranteed to affect this chunk (pre-filtered by index)
-            {
+            try {
+
+                from_chunkX = get.getInt();
+                from_chunkZ = get.getInt();
+                to_chunkX = get.getInt();
+                to_chunkZ = get.getInt();
+                id = Cache.getDictionary(String.valueOf(get.getShort()), true);
+                chosen = Cache.getDictionary(String.valueOf(get.getShort()), true);
+                center_posX = get.getInt();
+                center_posZ = get.getInt();
+                rotation = get.get();
+                mirrored = get.get() == 1;
+                start_height_offset = get.getShort();
+                up_sizeY = get.getShort();
+                ground_block = Cache.getDictionary(String.valueOf(get.getShort()), true);
+                dead_tree_level = get.getShort();
+
+            } catch (Exception ignored) {
+
+                return;
+
+            }
+
+            if ((from_chunkX <= chunk_pos.x && chunk_pos.x <= to_chunkX) && (from_chunkZ <= chunk_pos.z && chunk_pos.z <= to_chunkZ)) {
 
                 // Detailed Detection
                 {
@@ -97,21 +101,44 @@ public class TreePlacer {
                     int center_chunkX = center_posX >> 4;
                     int center_chunkZ = center_posZ >> 4;
 
-                    // Already Tested - P1.1+P1.2 Optimization: Use indexed cache instead of per-tree disk read
-                    // Reduces O(n) linear scan per tree to O(1) hash lookup, and caches region data in memory
+                    // Already Tested
                     {
-                        int regionX = chunk_pos.x >> 5;
-                        int regionZ = chunk_pos.z >> 5;
-                        Map<Long, Cache.DetectionResult> detectionCache = Cache.getDetailedDetection(dimension, regionX, regionZ);
-                        long posKey = Cache.makeDetectionKey(center_posX, center_posZ);
-                        Cache.DetectionResult result = detectionCache.get(posKey);
 
-                        if (result != null) {
-                            already_tested = true;
-                            pass = result.pass;
-                            center_posY = result.posY;
-                            dead_tree_level = result.deadTreeLevel;
+                        ByteBuffer detailed_detection = FileManager.readBIN(Handcode.path_world_data + "/world_gen/detailed_detection/" + dimension + "/" + (chunk_pos.x >> 5) + "," + (chunk_pos.z >> 5) + ".bin");
+                        boolean get_pass = false;
+                        int get_posX = 0;
+                        int get_posY = 0;
+                        int get_posZ = 0;
+                        int get_dead_tree_level = 0;
+
+                        while (detailed_detection.remaining() > 0) {
+
+                            try {
+
+                                get_pass = detailed_detection.get() == 1;
+                                get_posX = detailed_detection.getInt();
+                                get_posY = detailed_detection.getInt();
+                                get_posZ = detailed_detection.getInt();
+                                get_dead_tree_level = detailed_detection.getShort();
+
+                            } catch (Exception ignored) {
+
+                                return;
+
+                            }
+
+                            if (center_posX == get_posX && center_posZ == get_posZ) {
+
+                                already_tested = true;
+                                pass = get_pass;
+                                center_posY = get_posY;
+                                dead_tree_level = get_dead_tree_level;
+                                break;
+
+                            }
+
                         }
+
                     }
 
                     if (already_tested == false) {
@@ -197,7 +224,7 @@ public class TreePlacer {
                             test:
                             {
 
-                                // Structure Detection - P1.3 Optimization: Cache results per chunk
+                                // Structure Detection
                                 {
 
                                     int radius = ConfigMain.structure_detection_size;
@@ -208,21 +235,7 @@ public class TreePlacer {
 
                                             for (int scanZ = -radius; scanZ <= radius; scanZ++) {
 
-                                                int checkChunkX = center_chunkX + scanX;
-                                                int checkChunkZ = center_chunkZ + scanZ;
-
-                                                // P1.3: Check cache first
-                                                Boolean cachedResult = Cache.getStructureDetection(dimension, checkChunkX, checkChunkZ);
-                                                if (cachedResult != null) {
-                                                    if (cachedResult) {
-                                                        break test; // Has surface structures - fail
-                                                    }
-                                                    continue; // No surface structures - skip to next chunk
-                                                }
-
-                                                // Cache miss - do actual structure check
-                                                boolean hasSurfaceStructures = false;
-                                                ChunkAccess chunk = level_accessor.getChunk(checkChunkX, checkChunkZ, ChunkStatus.STRUCTURE_REFERENCES, false);
+                                                ChunkAccess chunk = level_accessor.getChunk(center_chunkX + scanX, center_chunkZ + scanZ, ChunkStatus.STRUCTURE_REFERENCES, false);
 
                                                 if (chunk != null) {
 
@@ -234,8 +247,7 @@ public class TreePlacer {
 
                                                             if (structure.step().equals(GenerationStep.Decoration.SURFACE_STRUCTURES) == true) {
 
-                                                                hasSurfaceStructures = true;
-                                                                break;
+                                                                break test;
 
                                                             }
 
@@ -243,13 +255,6 @@ public class TreePlacer {
 
                                                     }
 
-                                                }
-
-                                                // P1.3: Cache the result
-                                                Cache.cacheStructureDetection(dimension, checkChunkX, checkChunkZ, hasSurfaceStructures);
-
-                                                if (hasSurfaceStructures) {
-                                                    break test;
                                                 }
 
                                             }
@@ -260,7 +265,7 @@ public class TreePlacer {
 
                                 }
 
-                                int originalY = getCachedBaseHeight(chunk_generator, center_posX, center_posZ, Heightmap.Types.OCEAN_FLOOR_WG, level_accessor, level_server);
+                                int originalY = chunk_generator.getBaseHeight(center_posX, center_posZ, Heightmap.Types.OCEAN_FLOOR_WG, level_accessor, level_server.getChunkSource().randomState());
                                 center_posY = originalY;
 
                                 // Ground Level
@@ -343,10 +348,10 @@ public class TreePlacer {
                                         // Basic Test
                                         {
 
-                                            int pos1 = getCachedBaseHeight(chunk_generator, center_posX + size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
-                                            int pos2 = getCachedBaseHeight(chunk_generator, center_posX + size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
-                                            int pos3 = getCachedBaseHeight(chunk_generator, center_posX - size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
-                                            int pos4 = getCachedBaseHeight(chunk_generator, center_posX - size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                            int pos1 = chunk_generator.getBaseHeight(center_posX + size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                            int pos2 = chunk_generator.getBaseHeight(center_posX + size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                            int pos3 = chunk_generator.getBaseHeight(center_posX - size, center_posZ + size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                            int pos4 = chunk_generator.getBaseHeight(center_posX - size, center_posZ - size, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
                                             boolean test1 = (originalY < pos1 && height_up > pos1) || (originalY >= pos1 && pos1 > height_down);
                                             boolean test2 = (originalY < pos2 && height_up > pos2) || (originalY >= pos2 && pos2 > height_down);
                                             boolean test3 = (originalY < pos3 && height_up > pos3) || (originalY >= pos3 && pos3 > height_down);
@@ -364,9 +369,9 @@ public class TreePlacer {
 
                                             int fallen_direction = RandomSource.create(level_accessor.getServer().overworld().getSeed() ^ (center_posX * 341873128712L + center_posZ * 132897987541L)).nextInt(4) + 1;
                                             int[] pos_converted = OutsideUtils.convertPosRotationMirrored(0, originalY + up_sizeY, 0, rotation, mirrored, fallen_direction);
-                                            int pos1 = getCachedBaseHeight(chunk_generator, center_posX + (int) (pos_converted[0] * 0.5), center_posZ + (int) (pos_converted[2] * 0.5), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
-                                            int pos2 = getCachedBaseHeight(chunk_generator, center_posX + (int) (pos_converted[0] * 0.75), center_posZ + (int) (pos_converted[2] * 0.75), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
-                                            int pos3 = getCachedBaseHeight(chunk_generator, center_posX + (int) (pos_converted[0] * 1.0), center_posZ + (int) (pos_converted[2] * 1.0), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                            int pos1 = chunk_generator.getBaseHeight(center_posX + (int) (pos_converted[0] * 0.5), center_posZ + (int) (pos_converted[2] * 0.5), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                            int pos2 = chunk_generator.getBaseHeight(center_posX + (int) (pos_converted[0] * 0.75), center_posZ + (int) (pos_converted[2] * 0.75), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
+                                            int pos3 = chunk_generator.getBaseHeight(center_posX + (int) (pos_converted[0] * 1.0), center_posZ + (int) (pos_converted[2] * 1.0), Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
 
                                             if (originalY > pos1 && originalY > pos2 && originalY > pos3) {
 
@@ -385,7 +390,7 @@ public class TreePlacer {
 
                                     if (tree_type.equals("adapt") == false) {
 
-                                        int highestY = getCachedBaseHeight(chunk_generator, center_posX, center_posZ, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server);
+                                        int highestY = chunk_generator.getBaseHeight(center_posX, center_posZ, Heightmap.Types.WORLD_SURFACE_WG, level_accessor, level_server.getChunkSource().randomState());
 
                                         if ((tree_type.equals("land") == true && (originalY < highestY)) || (tree_type.equals("water") == true && (originalY == highestY))) {
 
@@ -469,7 +474,6 @@ public class TreePlacer {
      * Flushes all pending detailed_detection writes to disk.
      * Called at the end of chunk processing to batch file I/O operations.
      * Uses thread-local buffer for C2ME compatibility (each thread flushes its own buffer).
-     * P1.1: Also invalidates detection cache for affected regions to ensure consistency.
      */
     private static void flushPendingDetailedDetection () {
 
@@ -483,23 +487,6 @@ public class TreePlacer {
 
             String path = Handcode.path_world_data + "/world_gen/detailed_detection/" + entry.getKey() + ".bin";
             FileManager.writeBIN(path, entry.getValue(), true);
-
-            // P1.1: Invalidate cache for this region since we wrote new data
-            // Key format: "dimension/regionX,regionZ"
-            String key = entry.getKey();
-            int slashIdx = key.indexOf('/');
-            if (slashIdx > 0) {
-                String dimension = key.substring(0, slashIdx);
-                String regionCoords = key.substring(slashIdx + 1);
-                String[] coords = regionCoords.split(",");
-                if (coords.length == 2) {
-                    try {
-                        int regionX = Integer.parseInt(coords[0]);
-                        int regionZ = Integer.parseInt(coords[1]);
-                        Cache.invalidateDetectionCache(dimension, regionX, regionZ);
-                    } catch (NumberFormatException ignored) {}
-                }
-            }
 
         }
 
